@@ -1,19 +1,46 @@
+# Standard BSD license, blah blah, with 1 modification (#5)
+
 # Copyright (c) 2014, Erik Andeson  eanders@pobox.com
-# If this doesnt catch a failure case of yours please email me the cointerra_monitor.log log file so I can modify it
-# to catch your issues too.
+# All rights reserved.
+# https://github.com/dprophet/cointerra-monitor
 # TIPS are appreciated.  None of us can afford to have these machines down:
 #  BTC: 12VqRL4qPJ6Gs5V35giHZmbgbHfLxZtYyA
 #  LTC: LdQMsSAbEwjGZxMYyAqQeqoQr2otPhJ5Gx
-# 
-#
-# cointerra-monitor
-# https://github.com/dprophet/cointerra-monitor
 
-# Additional Dependencies that may be needed:
-#      pycrypto
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#     * Redistributions of source code must retain the above copyright
+#       notice, this list of conditions and the following disclaimer.
+#     * Redistributions in binary form must reproduce the above copyright
+#       notice, this list of conditions and the following disclaimer in the
+#       documentation and/or other materials provided with the distribution.
+#     * Neither the name of the <organization> nor the
+#       names of its contributors may be used to endorse or promote products
+#       derived from this software without specific prior written permission.
+
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+# WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
+# DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+# ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+# SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+# However!!!! If this doesnt catch a failure case of yours please email me the
+#    cointerra_monitor.log and cgminer.log files so I can modify it to catch
+#    your issues too.
+# 
+# Additional Python Dependencies:
 #      paramiko                  - SSH2 protocol library
 #      scp                       - scp module for paramiko
 
+# I highly recommend the use of some kinds of miner monitoring agents.  I have yet to see any ASIC/GPU gigs run perfectly.
+# Either hardware or software issues ends up shutting down your miner until you realize, OMG the coins stopped!  That
+# can be 1-14+ days since you had the last issue.  Complacency kills a miners returns.  Monitoring Agents will keep you
+# from always having to check statuses.
 
 import socket
 import sys
@@ -22,19 +49,14 @@ import copy
 import logging
 
 import smtplib
-import imaplib
 import email
 import gzip
 
 import json
 import os
-import threading
-
-import SimpleHTTPServer
-import SocketServer
 import urllib2
 
-#crypto stuff
+#SSH and SCP
 import paramiko
 import scpclient
 
@@ -50,27 +72,32 @@ log_name = 'cgminer.log'
 cointerra_log_file = '/var/log/' + log_name
 
 # Change the below email settings to match your email
-email_smtp_server = 'smtp.gmail.com:587'
-email_login = 'mylogin'
-email_password = 'mypassword'
-email_from = 'myemail@example.com'
-email_to = 'myemail@example.com'
+email_smtp_server = 'sasl.smtp.pobox.com:587'
+email_login = 'eanders@pobox.com'
+email_password = 'k4g8l7RjGzTHsZ9Nd%Wn'
+email_from = 'eanders@pobox.com'
+email_to = 'eanders@pobox.com'
+
+#email_smtp_server = 'smtp.gmail.com:587'
+#email_login = 'mylogin'
+#email_password = 'mypassword'
+#email_from = 'myemail@example.com'
+#email_to = 'myemail@example.com'
 
 #all emails from this script will start with this
-email_uniq_monitor_signature = 'Cointerra Watcher'
+email_subject_prefix = 'Cointerra Watcher'
 
-email_warning_subject = 'Warning'  #subject of emails containing warnings
+email_warning_subject = 'Warning'  #subject of emails containing warnings (Like temperature)
+email_error_subject = 'Error'      #subject of emails for errors (these are serious and require a reboot)
 
-monitor_interval = 5  #interval between a miner monitor check in seconds
+monitor_interval = 60  #interval between checking the cointerra status (in seconds)
 monitor_wait_after_email = 60  #waits 60 seconds after the status email was sent
 monitor_restart_cointerra_if_sick = True  #should we reboot the cointerra if sick/dead
 monitor_send_email_alerts = True  #should emails be sent containing status information, etc.
 
-max_temperature = 85  #maximum rate temperature before a warning is sent in Celcius
-monitor_min_mhs_sha256 = 1500000  #minimum expected hash rate for sha256, if under, warning is sent in MH/s
+max_temperature = 85.0  #maximum rate temperature before a warning is sent in Celcius
+cointerra_min_mhs_sha256 = 1500000  #minimum expected hash rate for sha256, if under, warning is sent in MH/s
 
-bAutoReboot = True   # Do you want to auto-reboot on errors?
-n_gpus = 1  #The number of gpu's on the system
 n_devices = 0  #Total nunber of ASIC processors onboard.  We will query for the count.
 n_error_counter = 0
 n_max_error_count = 3  # How many errors before you reboot the cointerra
@@ -80,6 +107,10 @@ n_hardware_reboot_percentage = 5  #If the hardware error percentage is over this
 sLogFilePath = os.getcwd()  # Directory where you want this script to store the Cointerra log files in event of troubles
 
 bDebug = False
+
+# Possible logging levels are
+#  logging.INFO  This is a lot of logs.  You will likely need this level of logging for support issues
+#  logging.INFO
 nLoggingLevel = logging.INFO
 
 n_ambient_temperature = 0
@@ -89,14 +120,6 @@ oStatsStructure = {}
 #
 # Configurations
 #
-
-#
-# Shared between monitor and http server
-#
-
-shared_output = ''
-shared_output_lock = threading.Lock()
-
 
 #
 # For checking the internet connection
@@ -511,7 +534,7 @@ def SendEmail(from_addr, to_addr_list, cc_addr_list,
         header = 'From: %s\n' % from_addr
         header += 'To: %s\n' % ','.join(to_addr_list)
         header += 'Cc: %s\n' % ','.join(cc_addr_list)
-        header += 'Subject: %s\n\n' % (email_uniq_monitor_signature + '_' + subject)
+        header += 'Subject: %s\n\n' % (email_subject_prefix + '_' + subject)
 
         server = smtplib.SMTP(smtpserver)
         server.starttls()
@@ -521,7 +544,7 @@ def SendEmail(from_addr, to_addr_list, cc_addr_list,
     else:
 
         msg = email.MIMEMultipart.MIMEMultipart()
-        msg['Subject'] = email_uniq_monitor_signature + '_' + subject 
+        msg['Subject'] = email_subject_prefix + '_' + subject 
         msg['From'] = from_addr
         msg['To'] = ', '.join(to_addr_list)
 
@@ -554,13 +577,13 @@ def StartMonitor(client):
     global n_devices
     global n_ambient_temperature
     global oStatsStructure
-    global bAutoReboot
     global n_hardware_reboot_percentage
     global n_max_error_count
     sLastGoodJSONEntry = ''
 
     # Delete the old log file
-    os.remove(sLogFilePath + '/cointerra_monitor.log')
+    if os.path.isfile(sLogFilePath + '/cointerra_monitor.log') == True:
+        os.remove(sLogFilePath + '/cointerra_monitor.log')
 
     logger = logging.getLogger('myapp')
     hdlr = logging.FileHandler(sLogFilePath + '/cointerra_monitor.log')
@@ -585,6 +608,7 @@ def StartMonitor(client):
     while(1):
         output = ''
         bError = False
+        bWarning = False
         bSocketError = False
         oStatsStructure = {}
 
@@ -637,6 +661,7 @@ def StartMonitor(client):
             output = output + result['error']
             bSocketError = True
 
+        # Make it more human readable
         sPrettyJSON = json.dumps(oStatsStructure, sort_keys=False, indent=4)
 
         if bDebug:
@@ -645,6 +670,7 @@ def StartMonitor(client):
         logger.info('new oStatsStructure = ' + sPrettyJSON)
 
         if bSocketError == False:
+            # The oStatsStructure contains all of the cointerra stats from calls to the cgminer RPC port
             for iCount in range(oStatsStructure['asics']['asic_count']):
                 if oStatsStructure['asics']['asics_array'][iCount]['status'] != 'Alive':
                     n_error_counter = n_error_counter + 1
@@ -661,7 +687,7 @@ def StartMonitor(client):
 
         if (bError == True) or (bSocketError == True):
             if n_error_counter > n_max_error_count:
-                sJsonContents = ''
+                sJsonContents = ''  # Reference to which JSON contents
 
                 # If a socket error use the last known good JSON contents
                 if bSocketError == True:
@@ -683,7 +709,7 @@ def StartMonitor(client):
 
                 if monitor_send_email_alerts:
                     SendEmail(from_addr = email_from, to_addr_list = [email_to], cc_addr_list = [],
-                              subject = email_warning_subject,
+                              subject = email_error_subject,
                               message = output + '\n' + sJsonContents,
                               login = email_login,
                               password = email_password,
@@ -693,7 +719,24 @@ def StartMonitor(client):
                 time.sleep(n_reboot_wait_time)
 
                 n_error_counter = 0  # Reset the error counter
+        elif bWarning == True:
+            if monitor_send_email_alerts:
 
+                sJsonContents = sPrettyJSON
+
+                print oStatsStructure['time'] + output
+                print 'System warning '
+                print sJsonContents
+
+                logger.error('System warning: ' + output)
+                logger.warning(sJsonContents)
+
+                SendEmail(from_addr = email_from, to_addr_list = [email_to], cc_addr_list = [],
+                          subject = email_warning_subject,
+                          message = output + '\n' + sJsonContents,
+                          login = email_login,
+                          password = email_password,
+                          sLogfile = sLogFilePath + '/' + log_name + '.gz')
         else:
             print oStatsStructure['time'] + ' everything is alive and well'
             logger.warn(oStatsStructure['time'] + ' everything is alive and well')
