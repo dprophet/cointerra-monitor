@@ -33,9 +33,9 @@
 #    cointerra_monitor.log and cgminer.log files so I can modify it to catch
 #    your issues too.
 # 
-# Additional Python Dependencies:
+# Additional Python Dependencies (use pip to install):
 #      paramiko                  - SSH2 protocol library
-#      scp                       - scp module for paramiko
+#     
 
 # I highly recommend the use of some kinds of miner monitoring agents.  I have yet to see any ASIC/GPU gigs run perfectly.
 # Either hardware or software issues ends up shutting down your miner until you realize, OMG the coins stopped!  That
@@ -44,6 +44,7 @@
 
 import socket
 import sys
+import traceback
 import time
 import copy
 import logging
@@ -64,17 +65,14 @@ import scpclient
 # Configurations
 #
 
+# This block of settings you MUST change for your system #############################
+
 cgminer_host = '192.168.1.150'   # Change this to the IP of your Cointerra
-cgminer_port = 4028
-cointerra_ssh_user = 'root'
-cointerra_ssh_pass = 'cointerra' # If you changed password of your Cointerra
-log_name = 'cgminer.log'
-cointerra_log_file = '/var/log/' + log_name
 
 # Change the below email settings to match your email
 email_smtp_server = 'sasl.smtp.pobox.com:587'
 email_login = 'eanders@pobox.com'
-email_password = 'k4g8l7RjGzTHsZ9Nd%Wn'
+email_password = 'k4g8l7RjGznotreallymypasswordbutthanksfortryingTHsZ9Nd%Wn'
 email_from = 'eanders@pobox.com'
 email_to = 'eanders@pobox.com'
 
@@ -83,6 +81,14 @@ email_to = 'eanders@pobox.com'
 #email_password = 'mypassword'
 #email_from = 'myemail@example.com'
 #email_to = 'myemail@example.com'
+
+# End of MUST change block ###########################################################
+
+cgminer_port = 4028
+cointerra_ssh_user = 'root'
+cointerra_ssh_pass = 'cointerra' # If you changed password of your Cointerra
+log_name = 'cgminer.log'
+cointerra_log_file = '/var/log/' + log_name
 
 #all emails from this script will start with this
 email_subject_prefix = 'Cointerra Watcher'
@@ -95,7 +101,7 @@ monitor_wait_after_email = 60  #waits 60 seconds after the status email was sent
 monitor_restart_cointerra_if_sick = True  #should we reboot the cointerra if sick/dead
 monitor_send_email_alerts = True  #should emails be sent containing status information, etc.
 
-max_temperature = 85.0  #maximum rate temperature before a warning is sent in Celcius
+max_temperature = 80.0  #maximum rate temperature before a warning is sent in Celcius
 cointerra_min_mhs_sha256 = 1500000  #minimum expected hash rate for sha256, if under, warning is sent in MH/s
 
 n_devices = 0  #Total nunber of ASIC processors onboard.  We will query for the count.
@@ -105,6 +111,7 @@ n_reboot_wait_time = 60  #How many seconds after the the reboot of the cointerra
 n_hardware_reboot_percentage = 5  #If the hardware error percentage is over this value we will reboot.  -1 to disable
 
 sLogFilePath = os.getcwd()  # Directory where you want this script to store the Cointerra log files in event of troubles
+sMonitorLogFile = sLogFilePath + '/cointerra_monitor.log'
 
 bDebug = False
 
@@ -147,7 +154,9 @@ class CgminerClient:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         received = {}
         received['message'] = None
-        received['error'] = None
+        # Set the error status first.  Will clear later.  Reason for this is I have had cgminer crash between sending and receiving of command
+        # and I need more debugging to see how python will handle a closed socket read.
+        received['error'] = 'Unknown error for command=' + command + ' params=' + str(parameter)
 
         try:
             mycommand = ""
@@ -156,19 +165,15 @@ class CgminerClient:
             else:
                 mycommand = json.dumps({"command": command})
 
-            if bDebug:
-                print 'host ' + self.host + ' port:' + str(self.rpc_port) + ', command:' + mycommand
-
             self.logger.info('host ' + self.host + ' port:' + str(self.rpc_port) + ', command:' + mycommand)
 
             sock.connect((self.host, self.rpc_port))
             self._send(sock, mycommand)
             received['message'] = self._receive(sock)
         except Exception as e:
-            print 'Got a socket Error.  Error = below'
             received['error'] = 'SOCKET_ERROR: ' + str(e)
             print received['error']
-            self.logger.error(received['error'])
+            self.logger.error(received['error'] + str(e) + '\n' + traceback.format_exc())
             sock.close()
             return received
 
@@ -182,14 +187,16 @@ class CgminerClient:
         try:
             decoded = json.loads(received['message'].replace('\x00', ''))
             myprettyjson = json.dumps(decoded, sort_keys=True, indent=4)
-            if bDebug:
-                print 'Received ' + myprettyjson
 
-            self.logger.info(myprettyjson)
+            self.logger.info('Received command results=' + myprettyjson)
             received['message'] = decoded
+            received['error'] = None
             return received
         except:
-            pass # restart makes it fail, but it's ok
+            received['error'] = 'Decoding exception: ' + str(e) + '\n Message(' + str(len(received['message'])) + ' received was:' + received['message']
+            print received['error']
+            self.logger.error(received['error'] + str(e) + '\n' + traceback.format_exc())
+            return received
 
     def _send(self, sock, msg):
         totalsent = 0
@@ -295,7 +302,7 @@ class JSONMessageProcessor:
                 thisStat['type'] = 'asic'
                 thisStat['board_num'] = result['Board number']
                 thisStat['calc_hashrate'] = result['Calc hashrate']
-                thisStat['ambient_avg'] = result['Ambient Avg']
+                thisStat['ambient_avg'] = float(result['Ambient Avg']) / float(100)
                 thisStat['asics'] = result['Asics']
                 thisStat['board_num'] = result['Board number']
                 thisStat['dies'] = result['Dies']
@@ -416,11 +423,16 @@ class CointerraSSH:
     def createSSHClient(self):
         self.logger.info('createSSHClient host ' + self.host + ' port:' + str(self.ssh_port))
 
-        client = paramiko.SSHClient()
-        client.load_system_host_keys()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        client.connect(self.host, self.ssh_port, self.user, self.password)
-        return client
+        try:
+            client = paramiko.SSHClient()
+            client.load_system_host_keys()
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            client.connect(self.host, self.ssh_port, self.user, self.password)
+            return client
+        except Exception as e:
+            print e
+            self.logger.error('Error in createSSHClient. =' + str(e) + '\n' + traceback.format_exc())
+            return None
 
     # Creates an SCP file transfer client
     def CreateScpClient(self):
@@ -447,6 +459,7 @@ class CointerraSSH:
 
         except Exception as e:
             print e
+            self.logger.error('Error in reboot. =' + str(e) + '\n' + traceback.format_exc())
             ssh_client.close()
 
 
@@ -460,6 +473,7 @@ class CointerraSSH:
             transport = ssh_client.get_transport()
             session = transport.open_session()
             session.exec_command('ps -deaf | grep cgminer')
+            time.sleep(1)
             if session.recv_ready():
                 data = session.recv(4096)
 
@@ -472,13 +486,14 @@ class CointerraSSH:
                 if nIndex > 0:
                     bReturn = True
             else:
-                print 'This should happen. session.recv_ready() isnt ready'
+                print 'This should not happen. session.recv_ready() isnt ready\n' + traceback.format_exc()
 
             ssh_client.close()
 
         except Exception as e:
             print 'Error thrown in isCGMinerRunning ='
             print e
+            self.logger.error('Error in isCGMinerRunning. =' + str(e) + '\n' + traceback.format_exc())
             ssh_client.close()
 
         return bReturn
@@ -501,22 +516,36 @@ class CointerraSSH:
             #this will copy the file from the cointerra to the local PC
             myscpclient.get(sFileName, self.sLogFilePath)
 
-            #compress the log file.  Can be very large for emailing
+            # sFileName is of the remote TerraMiner.  Parse it to get the filename without the path
             spath, sname = os.path.split(sFileName)
 
-            f_in = open(self.sLogFilePath + "/" + sname, 'rb')
-            f_out = gzip.open(self.sLogFilePath + "/" + sname + '.gz', 'wb')
-            f_out.writelines(f_in)
-            f_out.close()
-            f_in.close()
-
-            os.remove(self.sLogFilePath + "/" + sname)
+            self.compressFile(self.sLogFilePath + "/" + sname, True)
 
         except Exception as e:
             print 'Error thrown in ScpLogFile ='
             print e
+            self.logger.error('Error in ScpLogFile. =' + str(e) + '\n' + traceback.format_exc())
             ssh_client.close()
 
+    def compressFile (self, sUncompressedFilename, bDeleteOriginalFile):
+        #compress the log file.  Can be very large for emailing
+        try:
+            spath, sname = os.path.split(sUncompressedFilename)
+
+            f_in = open(sUncompressedFilename, 'rb')
+            f_out = gzip.open(sUncompressedFilename + '.gz', 'wb')
+            f_out.writelines(f_in)
+            f_out.close()
+            f_in.close()
+
+            if bDeleteOriginalFile == True:
+                os.remove(sUncompressedFilename)
+
+        except Exception as e:
+            print 'Error thrown in compressFile ='
+            print e
+            self.logger.error('Error in ScpLogFile. =' + str(e) + '\n' + traceback.format_exc())
+            ssh_client.close()
 
 
 
@@ -528,9 +557,10 @@ class CointerraSSH:
 def SendEmail(from_addr, to_addr_list, cc_addr_list,
               subject, message, login, password,
               smtpserver = email_smtp_server,
-              sLogfile = None):
+              sCGMinerLogfile = None,
+              sMonitorLogfile = None):
 
-    if sLogfile == None:
+    if (sCGMinerLogfile == None) and (sMonitorLogfile == None):
         header = 'From: %s\n' % from_addr
         header += 'To: %s\n' % ','.join(to_addr_list)
         header += 'Cc: %s\n' % ','.join(cc_addr_list)
@@ -550,13 +580,26 @@ def SendEmail(from_addr, to_addr_list, cc_addr_list,
 
         msg.attach(email.MIMEText.MIMEText(message))
 
-        part = email.MIMEBase.MIMEBase('application', "octet-stream")
-        part.set_payload(open(sLogfile, "rb").read())
-        email.Encoders.encode_base64(part)
+        if sCGMinerLogfile:
 
-        part.add_header('Content-Disposition', 'attachment; filename="cointerra.log.gz"')
+            part = email.MIMEBase.MIMEBase('application', "octet-stream")
+            part.set_payload(open(sCGMinerLogfile, "rb").read())
+            email.Encoders.encode_base64(part)
 
-        msg.attach(part)
+            part.add_header('Content-Disposition', 'attachment; filename="cgminer.log.gz"')
+
+            msg.attach(part)
+
+        if sMonitorLogfile:
+
+            part = email.MIMEBase.MIMEBase('application', "octet-stream")
+            part.set_payload(open(sMonitorLogfile, "rb").read())
+            email.Encoders.encode_base64(part)
+
+            part.add_header('Content-Disposition', 'attachment; filename="cointerra_monitor.log.gz"')
+
+            msg.attach(part)
+
 
         server = smtplib.SMTP(smtpserver)
         server.starttls()
@@ -582,11 +625,11 @@ def StartMonitor(client):
     sLastGoodJSONEntry = ''
 
     # Delete the old log file
-    if os.path.isfile(sLogFilePath + '/cointerra_monitor.log') == True:
-        os.remove(sLogFilePath + '/cointerra_monitor.log')
+    if os.path.isfile(sMonitorLogFile) == True:
+        os.remove(sMonitorLogFile)
 
-    logger = logging.getLogger('myapp')
-    hdlr = logging.FileHandler(sLogFilePath + '/cointerra_monitor.log')
+    logger = logging.getLogger('CointerraMonitor')
+    hdlr = logging.FileHandler(sMonitorLogFile)
     formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
     hdlr.setFormatter(formatter)
     logger.addHandler(hdlr) 
@@ -628,7 +671,7 @@ def StartMonitor(client):
                     messageProcessor.AscicBlock(oStatsStructure, loop, result['message'])
 
         else:
-            output = output + result['error']
+            output = output + '\n\n' + result['error']
             bSocketError = True
 
 
@@ -636,29 +679,28 @@ def StartMonitor(client):
         if result['message']:
             messageProcessor.CoinBlock(oStatsStructure,result['message'])
         else:
-            output = output + result['error']
+            output = output + '\n\n' + result['error']
             bSocketError = True
-
 
         result = client.command('pools', None)
         if result['message']:
             messageProcessor.PoolBlock(oStatsStructure,result['message'])
         else:
-            output = output + result['error']
+            output = output + '\n\n' + result['error']
             bSocketError = True
  
         result = client.command('summary', None)
         if result['message']:
             messageProcessor.SummaryBlock(oStatsStructure, result['message'])
         else:
-            output = output + result['error']
+            output = output + '\n\n' + result['error']
             bSocketError = True
 
         result = client.command('stats', None)
         if result['message']:
             messageProcessor.StatsBlock(oStatsStructure, result['message'])
         else:
-            output = output + result['error']
+            output = output + '\n\n' + result['error']
             bSocketError = True
 
         # Make it more human readable
@@ -672,16 +714,31 @@ def StartMonitor(client):
         if bSocketError == False:
             # The oStatsStructure contains all of the cointerra stats from calls to the cgminer RPC port
             for iCount in range(oStatsStructure['asics']['asic_count']):
-                if oStatsStructure['asics']['asics_array'][iCount]['status'] != 'Alive':
+                oAsic = oStatsStructure['asics']['asics_array'][iCount]
+                if oAsic['status'] != 'Alive':
                     n_error_counter = n_error_counter + 1
-                    output = 'Asic #' + str(iAsic) + ' bad status =' + oStatsStructure['asics']['asics_array'][iCount]['status']
+                    output = output + '\n Asic #' + str(iAsic) + ' bad status =' + oAsic['status']
                     bError = True
                     break
-                elif oStatsStructure['asics']['asics_array'][iCount]['reject_percent'] > n_hardware_reboot_percentage:
+                elif oAsic['reject_percent'] > n_hardware_reboot_percentage:
                     n_error_counter = n_error_counter + 1
-                    output = 'Asic #' + str(iAsic) + ' Hardware Errors too high ' + str(oStatsStructure['asics']['asics_array'][iCount]['reject_percent'])
+                    output = output + '\n Asic #' + str(iAsic) + ' Hardware Errors too high ' + str(oAsic['reject_percent'])
                     bError = True
                     break
+                elif oAsic['enabled'] != 'Y':
+                    n_error_counter = n_error_counter + 1
+                    output = output + '\n Asic #' + str(iAsic) + ' enabled= ' + oAsic['enabled']
+                    bError = True
+                    break
+
+            for iCount in range(oStatsStructure['stats']['stats_count']):
+                oStat = oStatsStructure['stats']['stats_array'][iCount]
+                if oStat['type'] == 'asic':
+                    if oStat['avg_core_temp'] >= max_temperature or oStat['ambient_avg'] >= max_temperature:
+                        bWarning = True
+                        output = output + '\n ASIC ID=' + oStat['id'] + ' has a high temperature. avg_core_temp=' + str(oStat['avg_core_temp']) + \
+                            ' ambient_avg=' + str(oStat['ambient_avg'])
+
         else:
             n_error_counter = n_error_counter + 1
 
@@ -707,36 +764,46 @@ def StartMonitor(client):
                 if monitor_restart_cointerra_if_sick == True:
                     cointerraSSH.reboot()
 
+                cointerraSSH.compressFile(sMonitorLogFile, False)
+
                 if monitor_send_email_alerts:
                     SendEmail(from_addr = email_from, to_addr_list = [email_to], cc_addr_list = [],
                               subject = email_error_subject,
                               message = output + '\n' + sJsonContents,
                               login = email_login,
                               password = email_password,
-                              sLogfile = sLogFilePath + '/' + log_name + '.gz')
+                              sCGMinerLogfile = sLogFilePath + '/' + log_name + '.gz',
+                              sMonitorLogfile = sMonitorLogFile + '.gz')
 
                 os.remove(sLogFilePath + '/' + log_name + '.gz')
                 time.sleep(n_reboot_wait_time)
 
                 n_error_counter = 0  # Reset the error counter
+            else:
+                logger.warning('Got an error. Counter:' + str(n_error_counter) + ' of:' + str(n_max_error_count) + '\n' + output)
+
         elif bWarning == True:
+
+            sJsonContents = sPrettyJSON
+
+            print oStatsStructure['time'] + ' ' + output
+            print 'System warning '
+            print sJsonContents
+
+            logger.error('System warning: ' + output)
+            logger.warning(sJsonContents)
+
+            cointerraSSH.ScpLogFile(cointerra_log_file)
+            cointerraSSH.compressFile(sMonitorLogFile, False)
+
             if monitor_send_email_alerts:
-
-                sJsonContents = sPrettyJSON
-
-                print oStatsStructure['time'] + output
-                print 'System warning '
-                print sJsonContents
-
-                logger.error('System warning: ' + output)
-                logger.warning(sJsonContents)
-
                 SendEmail(from_addr = email_from, to_addr_list = [email_to], cc_addr_list = [],
                           subject = email_warning_subject,
                           message = output + '\n' + sJsonContents,
                           login = email_login,
                           password = email_password,
-                          sLogfile = sLogFilePath + '/' + log_name + '.gz')
+                          sCGMinerLogfile = sLogFilePath + '/' + log_name + '.gz',
+                          sMonitorLogfile = sMonitorLogFile + '.gz')
         else:
             print oStatsStructure['time'] + ' everything is alive and well'
             logger.warn(oStatsStructure['time'] + ' everything is alive and well')
