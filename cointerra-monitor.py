@@ -1,4 +1,4 @@
-# Standard BSD license, blah blah, with 1 modification (#5)
+# Standard BSD license, blah blah, with 1 modification below
 
 # Copyright (c) 2014, Erik Andeson  eanders@pobox.com
 # All rights reserved.
@@ -61,6 +61,9 @@ import urllib2
 import paramiko
 import scpclient
 
+# For MobileMiner Reporting
+import MobileMinerAdapter
+
 #
 # Configurations
 #
@@ -70,17 +73,15 @@ import scpclient
 cgminer_host = '192.168.1.150'   # Change this to the IP of your Cointerra
 
 # Change the below email settings to match your email
-email_smtp_server = 'sasl.smtp.pobox.com:587'
-email_login = 'eanders@pobox.com'
-email_password = 'k4g8l7RjGznotreallymypasswordbutthanksfortryingTHsZ9Nd%Wn'
-email_from = 'eanders@pobox.com'
-email_to = 'eanders@pobox.com'
+email_smtp_server = 'smtp.gmail.com:587'
+email_login = 'mylogin'
+email_password = 'mypassword'
+email_from = 'myemail@example.com'
+email_to = 'myemail@example.com'
 
-#email_smtp_server = 'smtp.gmail.com:587'
-#email_login = 'mylogin'
-#email_password = 'mypassword'
-#email_from = 'myemail@example.com'
-#email_to = 'myemail@example.com'
+# MobileMiner settings
+sMobileMinerApiKey = ''    # Add your MobileMiner key here if you want this script to report for you
+sMachineName = 'NameMe!!!'  # Add the name of your machine.  This is required MobileMiner
 
 # End of MUST change block ###########################################################
 
@@ -96,7 +97,7 @@ email_subject_prefix = 'Cointerra Watcher'
 email_warning_subject = 'Warning'  #subject of emails containing warnings (Like temperature)
 email_error_subject = 'Error'      #subject of emails for errors (these are serious and require a reboot)
 
-monitor_interval = 60  #interval between checking the cointerra status (in seconds)
+monitor_interval = 30  #interval between checking the cointerra status (in seconds), Ideal if using MobileMiner
 monitor_wait_after_email = 60  #waits 60 seconds after the status email was sent
 monitor_restart_cointerra_if_sick = True  #should we reboot the cointerra if sick/dead
 monitor_send_email_alerts = True  #should emails be sent containing status information, etc.
@@ -107,7 +108,7 @@ cointerra_min_mhs_sha256 = 1500000  #minimum expected hash rate for sha256, if u
 n_devices = 0  #Total nunber of ASIC processors onboard.  We will query for the count.
 n_error_counter = 0
 n_max_error_count = 3  # How many errors before you reboot the cointerra
-n_reboot_wait_time = 60  #How many seconds after the the reboot of the cointerra before we restart the loop
+n_reboot_wait_time = 120  #How many seconds after the the reboot of the cointerra before we restart the loop
 n_hardware_reboot_percentage = 5  #If the hardware error percentage is over this value we will reboot.  -1 to disable
 
 sLogFilePath = os.getcwd()  # Directory where you want this script to store the Cointerra log files in event of troubles
@@ -380,11 +381,14 @@ class JSONMessageProcessor:
         asicID = result['ID']
         asicEnabled = result['Enabled']
         asicDeviceRejectPercent = result['Device Rejected%']
+        asicLastShareTime = time.strftime('%m/%d/%Y %H:%M:%S', time.localtime(result['Last Share Time']))
+        asicLastValidWork = time.strftime('%m/%d/%Y %H:%M:%S', time.localtime(result['Last Valid Work']))
 
         sStatsObject['asics']['asics_array'].insert(nAsicNumber, dict([('status', asicStatus), ('name', asicName), ('hash5s', asicHash5s), \
                                                                        ('hashavg', asicHashAvg), ('hw_errors', asicHardwareErrors), \
                                                                        ('rejected', asicRejected), ('id', asicID), ('enabled', asicEnabled), \
-                                                                       ('accepted', asicAccepted), ('reject_percent', asicDeviceRejectPercent)]))
+                                                                       ('accepted', asicAccepted), ('reject_percent', asicDeviceRejectPercent), \
+                                                                       ('last_share_t', asicLastShareTime), ('last_valid_t', asicLastValidWork)]))
         
         return sStatsObject
 
@@ -638,15 +642,13 @@ def StartMonitor(client):
 
     logger.error('Starting cointerra-watcher ' + time.strftime('%m/%d/%Y %H:%M:%S'))
 
-    test_internet_connection = False
-
-    last_command_check = time.time()
-    last_internet_check = time.time()
-    last_internet_check_email_sent = time.time()
-
     cointerraSSH = CointerraSSH(cgminer_host, 22, cointerra_ssh_user, cointerra_ssh_pass, sLogFilePath, logger)
     messageProcessor = JSONMessageProcessor(logger)
     cointerraSSH.isCGMinerRunning()
+
+    oMobileReporter = None
+    if len(sMobileMinerApiKey) > 0:
+        oMobileReporter = MobileMinerAdapter.MobileMinerAdapter(logger, sMobileMinerApiKey, sMachineName, email_to)
     
     while(1):
         output = ''
@@ -712,6 +714,11 @@ def StartMonitor(client):
         logger.info('new oStatsStructure = ' + sPrettyJSON)
 
         if bSocketError == False:
+            # No socket error.  Report to MobileMiner first
+            if oMobileReporter != None:
+                oMobileReporter.addDevices(oStatsStructure)
+                oMobileReporter.SendStats()
+
             # The oStatsStructure contains all of the cointerra stats from calls to the cgminer RPC port
             for iCount in range(oStatsStructure['asics']['asic_count']):
                 oAsic = oStatsStructure['asics']['asics_array'][iCount]
