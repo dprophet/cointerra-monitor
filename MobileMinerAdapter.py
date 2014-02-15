@@ -42,9 +42,9 @@ import traceback
 
 class MobileMinerAdapter:
 
-    def __init__(self, logger, sApiKey, sAppKey, sMachineName, sEmailAddress):
+    def __init__(self, logger, sAppKey, sMachineName, sEmailAddress):
         self.logger = logger
-        self.sApiKey = sApiKey
+        self.sApiKey = 'eqezq3oOb9fWhD'  # This is static for this particular application
         self.sAppKey = sAppKey
         self.sMachineName = sMachineName
         self.sEmail = sEmailAddress
@@ -73,12 +73,13 @@ class MobileMinerAdapter:
                     raise RuntimeError("Could not find matching Asic for stat id=" + sStatId)
 
 
-                device = {}
-                device[u'MinerName'] = u'CointerraMonitor'
-                device[u'CoinSymbol'] = u'BTC'
-                device[u'CoinName'] = u'Bitcoin'
-                device[u'Algorithm'] = u'SHA-256'
+                device = dict()
+                device[u'MinerName'] = 'CointerraMonitor'
+                device[u'CoinSymbol'] = 'BTC'
+                device[u'CoinName'] = 'Bitcoin'
+                device[u'Algorithm'] = 'SHA-256'
                 device[u'Name'] = sStatId
+                device[u'Kind'] = sStatId
                 device[u'RejectPercent'] = oAsicMatch['reject_percent']
                 device[u'HardwareErrors'] = oStat['hw_errors']
                 device[u'PumpRPM'] = oStat['pump_rpm']
@@ -87,8 +88,8 @@ class MobileMinerAdapter:
                     device[u'Enabled'] = True
                 else:
                     device[u'Enabled'] = False
-                device[u'AverageHashrate'] = oAsicMatch['hashavg']
-                device[u'CurrentHashrate'] = oAsicMatch['hash5s']
+                device[u'AverageHashrate'] = oAsicMatch['hashavg'] * 1000
+                device[u'CurrentHashrate'] = oAsicMatch['hash5s'] * 1000
                 device[u'Rejected'] = oAsicMatch['rejected']
                 device[u'Accepted'] = oAsicMatch['accepted']
                 device[u'AvgCoreTemp'] = oStat['avg_core_temp']
@@ -105,19 +106,18 @@ class MobileMinerAdapter:
         sPostURL ='https://mobileminer.azurewebsites.net/api/MiningStatisticsInput?emailAddress='+ self.sEmail + \
             '&applicationKey=' + self.sAppKey + '&machineName=' + self.sMachineName + '&apiKey=' + self.sApiKey
 
-        oRequest = urllib2.Request(sPostURL)
-        oRequest.add_header('Content-Type', 'application/json')
-
         sJsonData = ""
 
         try: 
             oRequest = urllib2.Request(sPostURL)
             oRequest.add_header('Content-Type', 'application/json')
             sJsonData = json.dumps(self.OutData)
-            response = urllib2.urlopen(oRequest, json.dumps(self.OutData))
+            response = urllib2.urlopen(oRequest, sJsonData)
         except Exception as e:
             self.logger.error('Error posting data to MultiMiner Exception: ' + str(e) + '\nURL=' + \
                               sPostURL + '\nsJsonData=' + sJsonData + '\n' + traceback.format_exc())
+            print 'Error posting data to MultiMiner Exception: ' + str(e) + '\nURL=' + \
+                              sPostURL + '\nsJsonData=' + sJsonData + '\n' + traceback.format_exc()
 
         # clear the buffer so its clean for the next time
         self.OutData = []
