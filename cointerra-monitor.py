@@ -826,25 +826,6 @@ def StartMonitor(client):
 
     return
 
-# """
-# Usage: cgminer-monitor.py [command] [parameter]
-#
-# Script will need to open a socket, so running in super-user mode may be needed
-#
-# No arguments: monitor + http server mode. Press CTRL+C to stop.
-# Arguments: send the command with optional parameter and exit.
-#
-
-# Useful error translations:
-# [Errno 111] Connection refused - cgminer's API has not been started yet
-#       Solution: Be sure to run cgminer with '--api-listen --api-allow W:127.0.0.1'
-#
-# [Errno 107] Transport endpoint is not connected
-#       Solution: Check that the --api-allow address is correct
-#
-# [Errno -2] Name or service not known
-#       Solution: Make sure your imap and smtp server locaions are correct
-#                     The script may crash if there is a port on the imap server, leave it without a port
 
 
 if __name__ == "__main__":
