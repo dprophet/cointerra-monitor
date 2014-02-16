@@ -193,10 +193,11 @@ class CgminerClient:
             received['message'] = decoded
             received['error'] = None
             return received
-        except:
-            received['error'] = 'Decoding exception: ' + str(e) + '\n Message(' + str(len(received['message'])) + ' received was:' + received['message']
+        except Exception as e:
+            print e
+            received['error'] = 'Decoding exception: ' + str(e) + '\n Message(' + str(len(received['message'])) + ') received was:' + received['message']
             print received['error']
-            self.logger.error(received['error'] + str(e) + '\n' + traceback.format_exc())
+            self.logger.error(received['error'] + '\n' + traceback.format_exc())
             return received
 
     def _send(self, sock, msg):
