@@ -92,7 +92,7 @@ class MobileMinerAdapter:
                 device[u'CurrentHashrate'] = oAsicMatch['hash5s'] * 1000
                 device[u'Rejected'] = oAsicMatch['rejected']
                 device[u'Accepted'] = oAsicMatch['accepted']
-                device[u'AvgCoreTemp'] = oStat['avg_core_temp']
+                device[u'Temperature'] = oStat['avg_core_temp']
                 device[u'AmbientAvgTemp'] = oStat['ambient_avg']
                 device[u'Dies'] = oStat['dies']
                 device[u'DiesActive'] = oStat['dies_active']
