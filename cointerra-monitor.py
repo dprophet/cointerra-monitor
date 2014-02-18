@@ -728,17 +728,17 @@ def StartMonitor(client):
                 oAsic = oStatsStructure['asics']['asics_array'][iCount]
                 if oAsic['status'] != 'Alive':
                     n_error_counter = n_error_counter + 1
-                    output = output + '\n Asic #' + str(iAsic) + ' bad status =' + oAsic['status']
+                    output = output + '\n Asic #' + str(iCount) + ' bad status =' + oAsic['status']
                     bError = True
                     break
                 elif oAsic['reject_percent'] > n_hardware_reboot_percentage:
                     n_error_counter = n_error_counter + 1
-                    output = output + '\n Asic #' + str(iAsic) + ' Hardware Errors too high ' + str(oAsic['reject_percent'])
+                    output = output + '\n Asic #' + str(iCount) + ' Hardware Errors too high ' + str(oAsic['reject_percent'])
                     bError = True
                     break
                 elif oAsic['enabled'] != 'Y':
                     n_error_counter = n_error_counter + 1
-                    output = output + '\n Asic #' + str(iAsic) + ' enabled= ' + oAsic['enabled']
+                    output = output + '\n Asic #' + str(iCount) + ' enabled= ' + oAsic['enabled']
                     bError = True
                     break
 
@@ -856,6 +856,7 @@ if __name__ == "__main__":
         except KeyboardInterrupt:
             sys.exit(0)
         except Exception as e:
+            # Its important to crash/shutdown here until all bugs are gone.
             print 'Error thrown in mail execution path ='
             print e
             print 'Traceback =' + traceback.format_exc()
