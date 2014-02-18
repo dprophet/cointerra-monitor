@@ -44,7 +44,7 @@ class MobileMinerAdapter:
 
     def __init__(self, logger, sAppKey, sMachineName, sEmailAddress):
         self.logger = logger
-        self.sApiKey = 'eqezq3oOb9fWhD'  # This is static for this particular application
+        self.sApiKey = 'eqezq3oOb9fWhD'  # This is static for this particular cointerra-monitor application.  Dont change it
         self.sAppKey = sAppKey
         self.sMachineName = sMachineName
         self.sEmail = sEmailAddress
@@ -80,7 +80,7 @@ class MobileMinerAdapter:
                 device[u'Algorithm'] = 'SHA-256'
                 device[u'Name'] = sStatId
                 device[u'Kind'] = sStatId
-                device[u'RejectPercent'] = oAsicMatch['reject_percent']
+                device[u'HardwareErrorsPercent'] = oAsicMatch['reject_percent']
                 device[u'HardwareErrors'] = oStat['hw_errors']
                 device[u'PumpRPM'] = oStat['pump_rpm']
                 device[u'Status'] = oAsicMatch['status']
@@ -88,7 +88,7 @@ class MobileMinerAdapter:
                     device[u'Enabled'] = True
                 else:
                     device[u'Enabled'] = False
-                device[u'AverageHashrate'] = oAsicMatch['hashavg'] * 1000
+                device[u'AverageHashrate'] = oAsicMatch['hashavg'] * 1000  #Convert to KiloHashes
                 device[u'CurrentHashrate'] = oAsicMatch['hash5s'] * 1000
                 device[u'Rejected'] = oAsicMatch['rejected']
                 device[u'Accepted'] = oAsicMatch['accepted']
@@ -113,12 +113,34 @@ class MobileMinerAdapter:
             oRequest.add_header('Content-Type', 'application/json')
             sJsonData = json.dumps(self.OutData)
             response = urllib2.urlopen(oRequest, sJsonData)
+            self.logger.info('Successfully sent stats to mobileminer')
         except Exception as e:
-            self.logger.error('Error posting data to MultiMiner Exception: ' + str(e) + '\nURL=' + \
+            self.logger.error('Error posting stats data to MultiMiner Exception: ' + str(e) + '\nURL=' + \
                               sPostURL + '\nsJsonData=' + sJsonData + '\n' + traceback.format_exc())
             print 'Error posting data to MultiMiner Exception: ' + str(e) + '\nURL=' + \
                               sPostURL + '\nsJsonData=' + sJsonData + '\n' + traceback.format_exc()
 
         # clear the buffer so its clean for the next time
         self.OutData = []
+
+    # This sends a message to the mobile miner application
+    def SendMessage (self, sMessage):
+        sPostURL ='https://mobileminer.azurewebsites.net/api/NotificationsInput?emailAddress='+ self.sEmail + \
+            '&applicationKey=' + self.sAppKey + '&apiKey=' + self.sApiKey
+
+        # oMessage needs to be an array of strings
+        oMessage = [sMessage]
+        sJsonData = ""
+
+        try: 
+            oRequest = urllib2.Request(sPostURL)
+            oRequest.add_header('Content-Type', 'application/json')
+            sJsonData = json.dumps(oMessage)
+            response = urllib2.urlopen(oRequest, sJsonData)
+            self.logger.info('Successfully SendMessage to mobileminer')
+        except Exception as e:
+            self.logger.error('Error posting message to MultiMiner Exception: ' + str(e) + '\nURL=' + \
+                              sPostURL + '\nsJsonData=' + sJsonData + '\n' + traceback.format_exc())
+            print 'Error posting data to MultiMiner Exception: ' + str(e) + '\nURL=' + \
+                              sPostURL + '\nsJsonData=' + sJsonData + '\n' + traceback.format_exc()
 

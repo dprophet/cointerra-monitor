@@ -14,14 +14,14 @@
 #     * Redistributions in binary form must reproduce the above copyright
 #       notice, this list of conditions and the following disclaimer in the
 #       documentation and/or other materials provided with the distribution.
-#     * Neither the name of the <organization> nor the
+#     * Neither the name of the Organization nor the
 #       names of its contributors may be used to endorse or promote products
 #       derived from this software without specific prior written permission.
 
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
 # ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
 # WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-# DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
+# DISCLAIMED. IN NO EVENT SHALL Erik Anderson BE LIABLE FOR ANY
 # DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
 # (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
 # LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
@@ -87,19 +87,19 @@ sMachineName = 'NameMe!!!'  # Add the name of your machine.  This is required Mo
 
 cgminer_port = 4028
 cointerra_ssh_user = 'root'
-cointerra_ssh_pass = 'cointerra' # If you changed password of your Cointerra
+cointerra_ssh_pass = 'cointerra' # This is the default password.  Only change if you changed the root password.
 log_name = 'cgminer.log'
 cointerra_log_file = '/var/log/' + log_name
 
 #all emails from this script will start with this
-email_subject_prefix = 'Cointerra Watcher'
+email_subject_prefix = 'Cointerra Monitor'
 
 email_warning_subject = 'Warning'  #subject of emails containing warnings (Like temperature)
 email_error_subject = 'Error'      #subject of emails for errors (these are serious and require a reboot)
 
 monitor_interval = 30  #interval between checking the cointerra status (in seconds), Ideal if using MobileMiner
 monitor_wait_after_email = 60  #waits 60 seconds after the status email was sent
-monitor_restart_cointerra_if_sick = True  #should we reboot the cointerra if sick/dead
+monitor_restart_cointerra_if_sick = True  #should we reboot the cointerra if sick/dead. This should ALWAYS be set to true except development/artificial errors
 monitor_send_email_alerts = True  #should emails be sent containing status information, etc.
 
 max_temperature = 80.0  #maximum rate temperature before a warning is sent in Celcius
@@ -117,9 +117,12 @@ sMonitorLogFile = sLogFilePath + '/cointerra_monitor.log'
 bDebug = False
 
 # Possible logging levels are
-#  logging.INFO  This is a lot of logs.  You will likely need this level of logging for support issues
-#  logging.INFO
-nLoggingLevel = logging.INFO
+#  logging.DEBUG     This is a lot of logs.  You will likely need this level of logging for support issues
+#  logging.INFO      Logs confirmations that everything is working as expected.  This should be the default level
+#  logging.WARNING   Logs warning.  Issues that did not cause a reboot are logged here.  Like temperature and hash rates.  
+#  logging.ERROR     Loss errors.  Script exceptions and issues we discovered with the Cointerra hardware
+#  logging.CRITICAL  This script doesnt use this level
+nLoggingLevel = logging.DEBUG
 
 n_ambient_temperature = 0
 
@@ -166,7 +169,7 @@ class CgminerClient:
             else:
                 mycommand = json.dumps({"command": command})
 
-            self.logger.info('host ' + self.host + ' port:' + str(self.rpc_port) + ', command:' + mycommand)
+            self.logger.debug('host ' + self.host + ' port:' + str(self.rpc_port) + ', command:' + mycommand)
 
             sock.connect((self.host, self.rpc_port))
             self._send(sock, mycommand)
@@ -189,7 +192,7 @@ class CgminerClient:
             decoded = json.loads(received['message'].replace('\x00', ''))
             myprettyjson = json.dumps(decoded, sort_keys=True, indent=4)
 
-            self.logger.info('Received command results=' + myprettyjson)
+            self.logger.debug('Received command results=' + myprettyjson)
             received['message'] = decoded
             received['error'] = None
             return received
@@ -231,7 +234,7 @@ class JSONMessageProcessor:
 
     def AscicCountBlock(self, sStatsObject, sAscicCountJSON):
         
-        self.logger.info('Processing ascic count block')
+        self.logger.debug('Processing ascic count block')
 
         sStatsObject['asics'] = {}
 
@@ -242,7 +245,7 @@ class JSONMessageProcessor:
 
     def CoinBlock(self, sStatsObject, sCoinJSON):
 
-        self.logger.info('Processing coin block')
+        self.logger.debug('Processing coin block')
 
         sStatsObject['coin'] = sCoinJSON['COIN'][0]['Hash Method']
 
@@ -250,7 +253,7 @@ class JSONMessageProcessor:
 
 
     def PoolBlock(self, sStatsObject, sPoolJSON):
-        self.logger.info('Processing pool block')
+        self.logger.debug('Processing pool block')
 
         sStatsObject['pools'] = {}
         sStatsObject['pools']['pools_array'] = []
@@ -284,7 +287,7 @@ class JSONMessageProcessor:
 
 
     def StatsBlock(self, sStatsObject, sStatsJSON):
-        self.logger.info('Processing stats block')
+        self.logger.debug('Processing stats block')
 
         sStatsObject['stats'] = {}
         iLen = len(sStatsJSON['STATS'])
@@ -365,7 +368,7 @@ class JSONMessageProcessor:
 
     # Process the ASIC RPC message
     def AscicBlock(self, sStatsObject, nAsicNumber, sAscicJSON):
-        self.logger.info('Processing ascic block')
+        self.logger.debug('Processing ascic block')
 
         if sStatsObject['asics'].get('asics_array') == None:
             sStatsObject['asics']['asics_array'] = []
@@ -395,7 +398,7 @@ class JSONMessageProcessor:
 
     # Processes the summary JSON return from a summary command
     def SummaryBlock(self, sStatsObject, sSummaryJSON):
-        self.logger.info('Processing ascic block')
+        self.logger.debug('Processing ascic block')
 
         result = sSummaryJSON['SUMMARY'][0]
 
@@ -426,7 +429,7 @@ class CointerraSSH:
 
     # Creates an SSH connection
     def createSSHClient(self):
-        self.logger.info('createSSHClient host ' + self.host + ' port:' + str(self.ssh_port))
+        self.logger.debug('createSSHClient host ' + self.host + ' port:' + str(self.ssh_port))
 
         try:
             client = paramiko.SSHClient()
@@ -569,7 +572,7 @@ def SendEmail(from_addr, to_addr_list, cc_addr_list,
         header = 'From: %s\n' % from_addr
         header += 'To: %s\n' % ','.join(to_addr_list)
         header += 'Cc: %s\n' % ','.join(cc_addr_list)
-        header += 'Subject: %s\n\n' % (email_subject_prefix + '_' + subject)
+        header += 'Subject: %s\n\n' % (email_subject_prefix + '_' + sMachineName + ': ' + subject)
 
         server = smtplib.SMTP(smtpserver)
         server.starttls()
@@ -579,7 +582,7 @@ def SendEmail(from_addr, to_addr_list, cc_addr_list,
     else:
 
         msg = email.MIMEMultipart.MIMEMultipart()
-        msg['Subject'] = email_subject_prefix + '_' + subject 
+        msg['Subject'] = email_subject_prefix + '_' + sMachineName + ': ' + subject
         msg['From'] = from_addr
         msg['To'] = ', '.join(to_addr_list)
 
@@ -712,7 +715,7 @@ def StartMonitor(client):
         if bDebug:
             print 'new oStatsStructure = ' + sPrettyJSON
 
-        logger.info('new oStatsStructure = ' + sPrettyJSON)
+        logger.debug('new oStatsStructure = ' + sPrettyJSON)
 
         if bSocketError == False:
             # No socket error.  Report to MobileMiner first
@@ -764,14 +767,19 @@ def StartMonitor(client):
                 print 'Rebooting machine and sending email.  Will sleep for ' + str(n_reboot_wait_time) + ' seconds'
                 print sJsonContents
 
-                logger.error('Rebooting machine and sending email.  Will sleep for ' + str(n_reboot_wait_time) + ' seconds')
-                logger.error(sJsonContents)
+                oMobileReporter.SendMessage('Foobar!  Rebooting ' + sMachineName)
+
+                logger.error('Rebooting machine and sending email, error:' + str(n_error_counter) + ' of:' + str(n_max_error_count)  + \
+                             ' Will sleep for ' + str(n_reboot_wait_time) + ' seconds')
+                if len(sJsonContents) > 0:
+                    logger.debug(sJsonContents)
 
                 cointerraSSH.ScpLogFile(cointerra_log_file)
 
                 if monitor_restart_cointerra_if_sick == True:
                     cointerraSSH.reboot()
 
+                # compress the log file to make smaller before we email it
                 cointerraSSH.compressFile(sMonitorLogFile, False)
 
                 if monitor_send_email_alerts:
@@ -813,8 +821,8 @@ def StartMonitor(client):
                           sCGMinerLogfile = sLogFilePath + '/' + log_name + '.gz',
                           sMonitorLogfile = sMonitorLogFile + '.gz')
         else:
-            print oStatsStructure['time'] + ' everything is alive and well'
-            logger.warn(oStatsStructure['time'] + ' everything is alive and well')
+            print oStatsStructure['time'] + ' ' + sMachineName + ': everything is alive and well'
+            logger.info(oStatsStructure['time'] + ' everything is alive and well')
             sLastGoodJSONEntry = copy.deepcopy(sPrettyJSON)
 
         # Sleep by increments of 1 second to catch the keyboard interrupt
@@ -825,27 +833,6 @@ def StartMonitor(client):
             os.system('clear')
 
     return
-
-# """
-# Usage: cgminer-monitor.py [command] [parameter]
-#
-# Script will need to open a socket, so running in super-user mode may be needed
-#
-# No arguments: monitor + http server mode. Press CTRL+C to stop.
-# Arguments: send the command with optional parameter and exit.
-#
-
-# Useful error translations:
-# [Errno 111] Connection refused - cgminer's API has not been started yet
-#       Solution: Be sure to run cgminer with '--api-listen --api-allow W:127.0.0.1'
-#
-# [Errno 107] Transport endpoint is not connected
-#       Solution: Check that the --api-allow address is correct
-#
-# [Errno -2] Name or service not known
-#       Solution: Make sure your imap and smtp server locaions are correct
-#                     The script may crash if there is a port on the imap server, leave it without a port
-
 
 if __name__ == "__main__":
 
@@ -868,3 +855,10 @@ if __name__ == "__main__":
 
         except KeyboardInterrupt:
             sys.exit(0)
+        except Exception as e:
+            print 'Error thrown in mail execution path ='
+            print e
+            print 'Traceback =' + traceback.format_exc()
+            client.logger.error('Error thrown in mail execution path =' + str(e) + '\n' + traceback.format_exc())
+            sys.exit(0)
+
