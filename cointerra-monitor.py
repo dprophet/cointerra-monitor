@@ -102,7 +102,8 @@ monitor_wait_after_email = 60  #waits 60 seconds after the status email was sent
 monitor_restart_cointerra_if_sick = True  #should we reboot the cointerra if sick/dead. This should ALWAYS be set to true except development/artificial errors
 monitor_send_email_alerts = True  #should emails be sent containing status information, etc.
 
-max_temperature = 80.0  #maximum rate temperature before a warning is sent in Celcius
+max_temperature = 80.0  #maximum temperature before a warning is sent in Celcius
+max_core_temperature = 92.0  #maximum temperature of 1 core before a warning is sent in Celcius
 cointerra_min_mhs_sha256 = 1500000  #minimum expected hash rate for sha256, if under, warning is sent in MH/s
 
 n_devices = 0  #Total nunber of ASIC processors onboard.  We will query for the count.
@@ -326,14 +327,18 @@ class JSONMessageProcessor:
                 thisStat['fm_date'] = result['FW Date']
                 thisStat['fm_revision'] = result['FW Revision']
 
+                thisStat['core_temps'] = []
+
                 # Calculate the average core temperature and hardware errors
                 for iDies in range(thisStat['dies']):
                     sKey = 'CoreTemp' + str(iDies)
                     thisStat['avg_core_temp'] = thisStat['avg_core_temp'] + result[sKey]
 
+                    thisStat['core_temps'].insert(iDies, float(result[sKey]) / 100 )
+
                     sKey = 'HWErrors' + str(iDies)
 
-                    thisStat['hw_errors'] = thisStat['hw_errors'] + result[sKey] / 100
+                    thisStat['hw_errors'] = thisStat['hw_errors'] + result[sKey]
 
                 thisStat['avg_core_temp'] = float(thisStat['avg_core_temp']) / float(100) / float(thisStat['dies'])
 
@@ -398,7 +403,7 @@ class JSONMessageProcessor:
 
     # Processes the summary JSON return from a summary command
     def SummaryBlock(self, sStatsObject, sSummaryJSON):
-        self.logger.debug('Processing ascic block')
+        self.logger.debug('Processing summary block')
 
         result = sSummaryJSON['SUMMARY'][0]
 
@@ -476,6 +481,7 @@ class CointerraSSH:
         bReturn = False
 
         try:
+            self.logger.info('running isCGMinerRunning')
             ssh_client = self.createSSHClient()
 
             transport = ssh_client.get_transport()
@@ -494,7 +500,7 @@ class CointerraSSH:
                 if nIndex > 0:
                     bReturn = True
             else:
-                print 'This should not happen. session.recv_ready() isnt ready\n' + traceback.format_exc()
+                self.logger.warning('This should not happen. session.recv_ready() isnt ready')
 
             ssh_client.close()
 
@@ -510,8 +516,7 @@ class CointerraSSH:
 
         try:
 
-            if bDebug:
-                print 'SCP file:' + sFileName + ' from host ' + self.host
+            self.logger.info('SCP file:' + sFileName + ' from host ' + self.host)
 
             ssh_client = self.createSSHClient()
             transport = ssh_client.get_transport()
@@ -664,6 +669,8 @@ def StartMonitor(client):
         must_send_email = False
         must_restart = False
 
+        logger.info('Start of loop.  Time=' + time.strftime('%m/%d/%Y %H:%M:%S'))
+
         oStatsStructure['time'] = time.strftime('%m/%d/%Y %H:%M:%S')
         # get the count of the number of ASIC units in the cointerra
         result = client.command('asccount', None)
@@ -749,6 +756,19 @@ def StartMonitor(client):
                         bWarning = True
                         output = output + '\n ASIC ID=' + oStat['id'] + ' has a high temperature. avg_core_temp=' + str(oStat['avg_core_temp']) + \
                             ' ambient_avg=' + str(oStat['ambient_avg'])
+                    elif oStat['dies'] != oStat['dies_active']:
+                        n_error_counter = n_error_counter + 1
+                        output = output + '\n' + oStat['id'] + ' has ' + str(oStat['dies_active']) + ' dies but only ' + \
+                            str(oStat['dies']) + ' are active'
+                        bError = True
+                        break
+
+                    for iCore in range(len(oStat['core_temps'])):
+                        if oStat['core_temps'][iCore] >= max_core_temperature:
+                            bWarning = True
+                            output = output + '\n' + oStat['id'] + ' core#' + str(iCore) + ' has a high temperature of ' + \
+                                str(oStat['core_temps'][iCore]) + '. Max temp is ' + str(max_core_temperature)
+
 
         else:
             n_error_counter = n_error_counter + 1
@@ -769,8 +789,8 @@ def StartMonitor(client):
 
                 oMobileReporter.SendMessage('Foobar!  Rebooting ' + sMachineName)
 
-                logger.error('Rebooting machine and sending email, error:' + str(n_error_counter) + ' of:' + str(n_max_error_count)  + \
-                             ' Will sleep for ' + str(n_reboot_wait_time) + ' seconds')
+                logger.error('Rebooting machine ' + sMachineName + ' and sending email, error:' + str(n_error_counter) + \
+                             ' of:' + str(n_max_error_count)  + ' Will sleep for ' + str(n_reboot_wait_time) + ' seconds')
                 if len(sJsonContents) > 0:
                     logger.debug(sJsonContents)
 
@@ -797,6 +817,8 @@ def StartMonitor(client):
                 n_error_counter = 0  # Reset the error counter
             else:
                 logger.warning('Got an error. Counter:' + str(n_error_counter) + ' of:' + str(n_max_error_count) + '\n' + output)
+                print oStatsStructure['time'] + ' ' + sMachineName + ': Got an error. Counter:' + str(n_error_counter) + ' of:' + \
+                    str(n_max_error_count) + '\n' + output
 
         elif bWarning == True:
 
@@ -806,7 +828,7 @@ def StartMonitor(client):
             print 'System warning '
             print sJsonContents
 
-            logger.error('System warning: ' + output)
+            logger.warning('System warning: ' + output)
             logger.warning(sJsonContents)
 
             cointerraSSH.ScpLogFile(cointerra_log_file)
@@ -821,8 +843,8 @@ def StartMonitor(client):
                           sCGMinerLogfile = sLogFilePath + '/' + log_name + '.gz',
                           sMonitorLogfile = sMonitorLogFile + '.gz')
         else:
-            print oStatsStructure['time'] + ' ' + sMachineName + ': everything is alive and well'
-            logger.info(oStatsStructure['time'] + ' everything is alive and well')
+            print time.strftime('%m/%d/%Y %H:%M:%S') + ' ' + sMachineName + ': everything is alive and well'
+            logger.info(time.strftime('%m/%d/%Y %H:%M:%S') + ' everything is alive and well')
             sLastGoodJSONEntry = copy.deepcopy(sPrettyJSON)
 
         # Sleep by increments of 1 second to catch the keyboard interrupt
