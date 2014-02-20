@@ -42,13 +42,14 @@ import traceback
 
 class MobileMinerAdapter:
 
-    def __init__(self, logger, sAppKey, sMachineName, sEmailAddress):
+    def __init__(self, logger, sAppKey, sMachineName, sEmailAddress, nTimeout=30):
         self.logger = logger
         self.sApiKey = 'eqezq3oOb9fWhD'  # This is static for this particular cointerra-monitor application.  Dont change it
         self.sAppKey = sAppKey
         self.sMachineName = sMachineName
         self.sEmail = sEmailAddress
         self.OutData = []
+        self.timeout = nTimeout
 
     def SetMachineName (self, sMachineName):
         self.sMachineName = sMachineName
@@ -108,11 +109,12 @@ class MobileMinerAdapter:
 
         sJsonData = ""
 
-        try: 
+        try:
+            self.logger.info('Sending stats to mobileminer') 
             oRequest = urllib2.Request(sPostURL)
             oRequest.add_header('Content-Type', 'application/json')
             sJsonData = json.dumps(self.OutData)
-            response = urllib2.urlopen(oRequest, sJsonData)
+            response = urllib2.urlopen(oRequest, sJsonData, self.timeout)
             self.logger.info('Successfully sent stats to mobileminer')
         except Exception as e:
             self.logger.error('Error posting stats data to MultiMiner Exception: ' + str(e) + '\nURL=' + \
@@ -133,10 +135,11 @@ class MobileMinerAdapter:
         sJsonData = ""
 
         try: 
+            self.logger.info('Sending message to mobileminer')
             oRequest = urllib2.Request(sPostURL)
             oRequest.add_header('Content-Type', 'application/json')
             sJsonData = json.dumps(oMessage)
-            response = urllib2.urlopen(oRequest, sJsonData)
+            response = urllib2.urlopen(oRequest, sJsonData, self.timeout)
             self.logger.info('Successfully SendMessage to mobileminer')
         except Exception as e:
             self.logger.error('Error posting message to MultiMiner Exception: ' + str(e) + '\nURL=' + \
