@@ -42,7 +42,7 @@ import traceback
 
 class MobileMinerAdapter:
 
-    def __init__(self, logger, sAppKey, sMachineName, sEmailAddress, nTimeout=30):
+    def __init__(self, logger, sAppKey, sMachineName, sEmailAddress, nTimeout=15):
         self.logger = logger
         self.sApiKey = 'eqezq3oOb9fWhD'  # This is static for this particular cointerra-monitor application.  Dont change it
         self.sAppKey = sAppKey
@@ -53,6 +53,15 @@ class MobileMinerAdapter:
 
     def SetMachineName (self, sMachineName):
         self.sMachineName = sMachineName
+
+    def SetAppKey (self, sAppKey):
+        self.sAppKey = sAppKey
+
+    def SetEmailAddress (self, sEmailAddress):
+        self.sEmail = sEmailAddress
+
+    def ClearData (self):
+        self.OutData = []
 
     def addDevices (self, oInStatsStructure):
 
@@ -122,8 +131,6 @@ class MobileMinerAdapter:
             print 'Error posting data to MultiMiner Exception: ' + str(e) + '\nURL=' + \
                               sPostURL + '\nsJsonData=' + sJsonData + '\n' + traceback.format_exc()
 
-        # clear the buffer so its clean for the next time
-        self.OutData = []
 
     # This sends a message to the mobile miner application
     def SendMessage (self, sMessage):

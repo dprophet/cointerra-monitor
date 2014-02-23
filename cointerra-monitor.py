@@ -70,24 +70,12 @@ import MobileMinerAdapter
 
 # This block of settings you MUST change for your system #############################
 
-cgminer_host = '192.168.1.150'   # Change this to the IP of your Cointerra
-
-# Change the below email settings to match your email
-email_smtp_server = 'smtp.gmail.com:587'
-email_login = 'mylogin'
-email_password = 'mypassword'
-email_from = 'myemail@example.com'
-email_to = 'myemail@example.com'
-
-# MobileMiner settings
 sMobileMinerApiKey = ''    # Add your MobileMiner key here if you want this script to report for you
-sMachineName = 'NameMe!!!'  # Add the name of your machine.  This is required MobileMiner
 
 # End of MUST change block ###########################################################
 
 cgminer_port = 4028
 cointerra_ssh_user = 'root'
-cointerra_ssh_pass = 'cointerra' # This is the default password.  Only change if you changed the root password.
 log_name = 'cgminer.log'
 cointerra_log_file = '/var/log/' + log_name
 
@@ -125,10 +113,6 @@ bDebug = False
 #  logging.CRITICAL  This script doesnt use this level
 nLoggingLevel = logging.DEBUG
 
-n_ambient_temperature = 0
-
-oStatsStructure = {}
-
 #
 # Configurations
 #
@@ -145,10 +129,8 @@ def internet_on():
     
     return False
 
-#
-# cgminer RPC
-#
-
+# Class allows communications to the cgminer RPC port on the Cointerra hardware.  Parses return
+# string into a Python data structure
 class CgminerClient:
     def __init__(self, host, port):
         self.host = host
@@ -224,6 +206,10 @@ class CgminerClient:
 
     def setLogger (self, logger):
         self.logger = logger
+
+    def setCointerraIP (self, sIP):
+        self.host = sIP
+
 
 
 
@@ -432,6 +418,12 @@ class CointerraSSH:
         self.sLogFilePath = sLogFilePath
         self.logger = logger
 
+    def setHost(self, sHost):
+        self.host = sHost
+
+    def setPassword(self, sPassword):
+        self.password = sPassword
+
     # Creates an SSH connection
     def createSSHClient(self):
         self.logger.debug('createSSHClient host ' + self.host + ' port:' + str(self.ssh_port))
@@ -569,7 +561,7 @@ class CointerraSSH:
 
 def SendEmail(from_addr, to_addr_list, cc_addr_list,
               subject, message, login, password,
-              smtpserver = email_smtp_server,
+              smtpserver,
               sCGMinerLogfile = None,
               sMonitorLogfile = None):
 
@@ -622,7 +614,7 @@ def SendEmail(from_addr, to_addr_list, cc_addr_list,
 
 
 # This is the main execution module
-def StartMonitor(client):
+def StartMonitor(client, configs):
     os.system('clear')
 
     #time internet was lost and reconnected
@@ -632,10 +624,8 @@ def StartMonitor(client):
     global n_error_counter
     global n_devices
     global n_ambient_temperature
-    global oStatsStructure
     global n_hardware_reboot_percentage
     global n_max_error_count
-    sLastGoodJSONEntry = ''
 
     # Delete the old log file
     if os.path.isfile(sMonitorLogFile) == True:
@@ -651,205 +641,256 @@ def StartMonitor(client):
 
     logger.error('Starting cointerra-watcher ' + time.strftime('%m/%d/%Y %H:%M:%S'))
 
-    cointerraSSH = CointerraSSH(cgminer_host, 22, cointerra_ssh_user, cointerra_ssh_pass, sLogFilePath, logger)
     messageProcessor = JSONMessageProcessor(logger)
-    cointerraSSH.isCGMinerRunning()
+
+    nCointerraCoint = len(configs['machines'])
+
+    sJsonContents = []
+    sLastGoodJSONEntry = []
+    for iCount in range(nCointerraCoint):
+        sJsonContents.append('')
+        sLastGoodJSONEntry.append('')
 
     oMobileReporter = None
-    if len(sMobileMinerApiKey) > 0:
-        oMobileReporter = MobileMinerAdapter.MobileMinerAdapter(logger, sMobileMinerApiKey, sMachineName, email_to)
+    oSSH = None
     
     while(1):
-        output = ''
-        bError = False
-        bWarning = False
-        bSocketError = False
-        oStatsStructure = {}
-
-        must_send_email = False
-        must_restart = False
-
         logger.info('Start of loop.  Time=' + time.strftime('%m/%d/%Y %H:%M:%S'))
 
-        oStatsStructure['time'] = time.strftime('%m/%d/%Y %H:%M:%S')
-        # get the count of the number of ASIC units in the cointerra
-        result = client.command('asccount', None)
-        if result['message']:
-            messageProcessor.AscicCountBlock(oStatsStructure,result['message'])
-            n_devices = oStatsStructure['asics']['asic_count']
+        bWasAMachineRebooted = False
 
-            for loop in range(n_devices):
-                result = client.command('asc', str(loop))
-                if result:
-                    messageProcessor.AscicBlock(oStatsStructure, loop, result['message'])
+        for iCointrraNum in range(len(configs['machines'])):
+            oCurrentMachine = configs['machines'][iCointrraNum]
 
-        else:
-            output = output + '\n\n' + result['error']
-            bSocketError = True
+            output = ''
+            bError = False
+            bWarning = False
+            bSocketError = False
+            oStatsStructure = {}
+
+            must_send_email = False
+            must_restart = False
+
+            # Get settings from the config JSON file for this loop
+            cgminer_host = oCurrentMachine['cointerra_ip_address']
+            cointerra_ssh_pass = oCurrentMachine['root_password']
+            email_smtp_server = oCurrentMachine['email_smtp_server']
+            email_login = oCurrentMachine['email_login']
+            email_password = oCurrentMachine['email_password']
+            email_from = oCurrentMachine['email_from']
+            email_to = oCurrentMachine['email_to']
+            sMachineName = oCurrentMachine['machine_name']
+            nMobileMinerCount = len(oCurrentMachine['mobileminer'])
+
+            if nMobileMinerCount > 0 and oMobileReporter == None:
+                oMobileReporter = MobileMinerAdapter.MobileMinerAdapter(logger, sMobileMinerApiKey, sMachineName, email_to)
+
+            logger.info('Checking machine ' + cgminer_host + '. Time=' + time.strftime('%m/%d/%Y %H:%M:%S'))
+
+            if oSSH == None:
+                oSSH = CointerraSSH(cgminer_host, 22, cointerra_ssh_user, cointerra_ssh_pass, sLogFilePath, logger)
+
+            # Set the host and password for this cointerra
+            oSSH.setHost(cgminer_host)
+            oSSH.setPassword(cointerra_ssh_pass)
+
+            client.setCointerraIP(cgminer_host)
+
+            oStatsStructure['time'] = time.strftime('%m/%d/%Y %H:%M:%S')
+            oStatsStructure['machine_name'] = sMachineName
+            oStatsStructure['host'] = cgminer_host
+
+            # get the count of the number of ASIC units in the cointerra
+            result = client.command('asccount', None)
+            if result['message']:
+                messageProcessor.AscicCountBlock(oStatsStructure,result['message'])
+                n_devices = oStatsStructure['asics']['asic_count']
+
+                for loop in range(n_devices):
+                    result = client.command('asc', str(loop))
+                    if result:
+                        messageProcessor.AscicBlock(oStatsStructure, loop, result['message'])
+
+            else:
+                output = output + '\n\n' + result['error']
+                bSocketError = True
 
 
-        result = client.command('coin', None)
-        if result['message']:
-            messageProcessor.CoinBlock(oStatsStructure,result['message'])
-        else:
-            output = output + '\n\n' + result['error']
-            bSocketError = True
+            result = client.command('coin', None)
+            if result['message']:
+                messageProcessor.CoinBlock(oStatsStructure,result['message'])
+            else:
+                output = output + '\n\n' + result['error']
+                bSocketError = True
 
-        result = client.command('pools', None)
-        if result['message']:
-            messageProcessor.PoolBlock(oStatsStructure,result['message'])
-        else:
-            output = output + '\n\n' + result['error']
-            bSocketError = True
- 
-        result = client.command('summary', None)
-        if result['message']:
-            messageProcessor.SummaryBlock(oStatsStructure, result['message'])
-        else:
-            output = output + '\n\n' + result['error']
-            bSocketError = True
+            result = client.command('pools', None)
+            if result['message']:
+                messageProcessor.PoolBlock(oStatsStructure,result['message'])
+            else:
+                output = output + '\n\n' + result['error']
+                bSocketError = True
+     
+            result = client.command('summary', None)
+            if result['message']:
+                messageProcessor.SummaryBlock(oStatsStructure, result['message'])
+            else:
+                output = output + '\n\n' + result['error']
+                bSocketError = True
 
-        result = client.command('stats', None)
-        if result['message']:
-            messageProcessor.StatsBlock(oStatsStructure, result['message'])
-        else:
-            output = output + '\n\n' + result['error']
-            bSocketError = True
+            result = client.command('stats', None)
+            if result['message']:
+                messageProcessor.StatsBlock(oStatsStructure, result['message'])
+            else:
+                output = output + '\n\n' + result['error']
+                bSocketError = True
 
-        # Make it more human readable
-        sPrettyJSON = json.dumps(oStatsStructure, sort_keys=False, indent=4)
+            # Make it more human readable
+            sPrettyJSON = json.dumps(oStatsStructure, sort_keys=False, indent=4)
 
-        if bDebug:
-            print 'new oStatsStructure = ' + sPrettyJSON
+            if bDebug:
+                print 'new oStatsStructure = ' + sPrettyJSON
 
-        logger.debug('new oStatsStructure = ' + sPrettyJSON)
+            logger.debug('new oStatsStructure = ' + sPrettyJSON)
 
-        if bSocketError == False:
-            # No socket error.  Report to MobileMiner first
-            if oMobileReporter != None:
-                oMobileReporter.addDevices(oStatsStructure)
-                oMobileReporter.SendStats()
+            if bSocketError == False:
+                # No socket error.  Report to MobileMiner first
+                if oMobileReporter != None:
+                    if nMobileMinerCount > 0:
+                        oMobileReporter.SetMachineName(sMachineName)
+                        oMobileReporter.addDevices(oStatsStructure)
 
-            # The oStatsStructure contains all of the cointerra stats from calls to the cgminer RPC port
-            for iCount in range(oStatsStructure['asics']['asic_count']):
-                oAsic = oStatsStructure['asics']['asics_array'][iCount]
-                if oAsic['status'] != 'Alive':
-                    n_error_counter = n_error_counter + 1
-                    output = output + '\n Asic #' + str(iCount) + ' bad status =' + oAsic['status']
-                    bError = True
-                    break
-                elif oAsic['reject_percent'] > n_hardware_reboot_percentage:
-                    n_error_counter = n_error_counter + 1
-                    output = output + '\n Asic #' + str(iCount) + ' Hardware Errors too high ' + str(oAsic['reject_percent'])
-                    bError = True
-                    break
-                elif oAsic['enabled'] != 'Y':
-                    n_error_counter = n_error_counter + 1
-                    output = output + '\n Asic #' + str(iCount) + ' enabled= ' + oAsic['enabled']
-                    bError = True
-                    break
+                        for iMobileMinerCointer in range(nMobileMinerCount):
+                            oMobileReporter.SetAppKey(oCurrentMachine['mobileminer'][iMobileMinerCointer]['mobileminer_api_key'])
+                            oMobileReporter.SetEmailAddress(oCurrentMachine['mobileminer'][iMobileMinerCointer]['mobileminer_email'])
+                            oMobileReporter.SendStats()
 
-            for iCount in range(oStatsStructure['stats']['stats_count']):
-                oStat = oStatsStructure['stats']['stats_array'][iCount]
-                if oStat['type'] == 'asic':
-                    if oStat['avg_core_temp'] >= max_temperature or oStat['ambient_avg'] >= max_temperature:
-                        bWarning = True
-                        output = output + '\n ASIC ID=' + oStat['id'] + ' has a high temperature. avg_core_temp=' + str(oStat['avg_core_temp']) + \
-                            ' ambient_avg=' + str(oStat['ambient_avg'])
-                    elif oStat['dies'] != oStat['dies_active']:
+                        oMobileReporter.ClearData()
+
+                # The oStatsStructure contains all of the cointerra stats from calls to the cgminer RPC port
+                for iCount in range(oStatsStructure['asics']['asic_count']):
+                    oAsic = oStatsStructure['asics']['asics_array'][iCount]
+                    if oAsic['status'] != 'Alive':
                         n_error_counter = n_error_counter + 1
-                        output = output + '\n' + oStat['id'] + ' has ' + str(oStat['dies_active']) + ' dies but only ' + \
-                            str(oStat['dies']) + ' are active'
+                        output = output + '\n Asic #' + str(iCount) + ' bad status =' + oAsic['status']
+                        bError = True
+                        break
+                    elif oAsic['reject_percent'] > n_hardware_reboot_percentage:
+                        n_error_counter = n_error_counter + 1
+                        output = output + '\n Asic #' + str(iCount) + ' Hardware Errors too high ' + str(oAsic['reject_percent'])
+                        bError = True
+                        break
+                    elif oAsic['enabled'] != 'Y':
+                        n_error_counter = n_error_counter + 1
+                        output = output + '\n Asic #' + str(iCount) + ' enabled= ' + oAsic['enabled']
                         bError = True
                         break
 
-                    for iCore in range(len(oStat['core_temps'])):
-                        if oStat['core_temps'][iCore] >= max_core_temperature:
+                for iCount in range(oStatsStructure['stats']['stats_count']):
+                    oStat = oStatsStructure['stats']['stats_array'][iCount]
+                    if oStat['type'] == 'asic':
+                        if oStat['avg_core_temp'] >= max_temperature or oStat['ambient_avg'] >= max_temperature:
                             bWarning = True
-                            output = output + '\n' + oStat['id'] + ' core#' + str(iCore) + ' has a high temperature of ' + \
-                                str(oStat['core_temps'][iCore]) + '. Max temp is ' + str(max_core_temperature)
+                            output = output + '\n ASIC ID=' + oStat['id'] + ' has a high temperature. avg_core_temp=' + str(oStat['avg_core_temp']) + \
+                                ' ambient_avg=' + str(oStat['ambient_avg'])
+                        elif oStat['dies'] != oStat['dies_active']:
+                            n_error_counter = n_error_counter + 1
+                            output = output + '\n' + oStat['id'] + ' has ' + str(oStat['dies_active']) + ' dies but only ' + \
+                                str(oStat['dies']) + ' are active'
+                            bError = True
+                            break
+
+                        for iCore in range(len(oStat['core_temps'])):
+                            if oStat['core_temps'][iCore] >= max_core_temperature:
+                                bWarning = True
+                                output = output + '\n' + oStat['id'] + ' core#' + str(iCore) + ' has a high temperature of ' + \
+                                    str(oStat['core_temps'][iCore]) + '. Max temp is ' + str(max_core_temperature)
 
 
-        else:
-            n_error_counter = n_error_counter + 1
+            else:
+                n_error_counter = n_error_counter + 1
 
-        if (bError == True) or (bSocketError == True):
-            if n_error_counter > n_max_error_count:
-                sJsonContents = ''  # Reference to which JSON contents
+            if (bError == True) or (bSocketError == True):
+                if n_error_counter > n_max_error_count:
+                    sJsonContents[iCointrraNum] = ''
 
-                # If a socket error use the last known good JSON contents
-                if bSocketError == True:
-                    sJsonContents = sLastGoodJSONEntry
+                    # If a socket error use the last known good JSON contents
+                    if bSocketError == True:
+                        sJsonContents[iCointrraNum] = sLastGoodJSONEntry[iCointrraNum]
+                    else:
+                        sJsonContents[iCointrraNum] = sPrettyJSON
+
+                    print oStatsStructure['time'] + output
+                    print 'Rebooting machine and sending email.  Will sleep for ' + str(n_reboot_wait_time) + ' seconds'
+                    print sJsonContents[iCointrraNum]
+
+                    oMobileReporter.SendMessage('Foobar!  Rebooting ' + sMachineName)
+
+                    logger.error('Rebooting machine ' + sMachineName + ' and sending email, error:' + str(n_error_counter) + \
+                                 ' of:' + str(n_max_error_count)  + ' Will sleep for ' + str(n_reboot_wait_time) + ' seconds')
+                    if len(sJsonContents[iCointrraNum]) > 0:
+                        logger.debug(sJsonContents[iCointrraNum])
+
+                    oSSH.ScpLogFile(cointerra_log_file)
+
+                    if monitor_restart_cointerra_if_sick == True:
+                        oSSH.reboot()
+                        bWasAMachineRebooted = True
+
+                    # compress the log file to make smaller before we email it
+                    oSSH.compressFile(sMonitorLogFile, False)
+
+                    if monitor_send_email_alerts:
+                        SendEmail(from_addr = email_from, to_addr_list = [email_to], cc_addr_list = [],
+                                  subject = email_error_subject,
+                                  message = output + '\n' + sJsonContents[iCointrraNum],
+                                  login = email_login,
+                                  password = email_password,
+                                  sCGMinerLogfile = sLogFilePath + '/' + log_name + '.gz',
+                                  sMonitorLogfile = sMonitorLogFile + '.gz')
+
+                    os.remove(sLogFilePath + '/' + log_name + '.gz')
+
+                    time.sleep(n_reboot_wait_time)
+
+                    n_error_counter = 0  # Reset the error counter
                 else:
-                    sJsonContents = sPrettyJSON
+                    logger.warning('Got an error. Counter:' + str(n_error_counter) + ' of:' + str(n_max_error_count) + '\n' + output)
+                    print oStatsStructure['time'] + ' ' + sMachineName + ': Got an error. Counter:' + str(n_error_counter) + ' of:' + \
+                        str(n_max_error_count) + '\n' + output
 
-                print oStatsStructure['time'] + output
-                print 'Rebooting machine and sending email.  Will sleep for ' + str(n_reboot_wait_time) + ' seconds'
-                print sJsonContents
+            elif bWarning == True:
 
-                oMobileReporter.SendMessage('Foobar!  Rebooting ' + sMachineName)
+                sJsonContents[iCointrraNum] = sPrettyJSON
 
-                logger.error('Rebooting machine ' + sMachineName + ' and sending email, error:' + str(n_error_counter) + \
-                             ' of:' + str(n_max_error_count)  + ' Will sleep for ' + str(n_reboot_wait_time) + ' seconds')
-                if len(sJsonContents) > 0:
-                    logger.debug(sJsonContents)
+                print oStatsStructure['time'] + ' ' + output
+                print 'System warning '
+                print sJsonContents[iCointrraNum]
 
-                cointerraSSH.ScpLogFile(cointerra_log_file)
+                logger.warning('System warning: ' + output)
+                logger.warning(sJsonContents[iCointrraNum])
 
-                if monitor_restart_cointerra_if_sick == True:
-                    cointerraSSH.reboot()
-
-                # compress the log file to make smaller before we email it
-                cointerraSSH.compressFile(sMonitorLogFile, False)
+                oSSH.ScpLogFile(cointerra_log_file)
+                oSSH.compressFile(sMonitorLogFile, False)
 
                 if monitor_send_email_alerts:
                     SendEmail(from_addr = email_from, to_addr_list = [email_to], cc_addr_list = [],
-                              subject = email_error_subject,
-                              message = output + '\n' + sJsonContents,
+                              subject = email_warning_subject,
+                              message = output + '\n' + sJsonContents[iCointrraNum],
                               login = email_login,
                               password = email_password,
                               sCGMinerLogfile = sLogFilePath + '/' + log_name + '.gz',
                               sMonitorLogfile = sMonitorLogFile + '.gz')
-
-                os.remove(sLogFilePath + '/' + log_name + '.gz')
-                time.sleep(n_reboot_wait_time)
-
-                n_error_counter = 0  # Reset the error counter
             else:
-                logger.warning('Got an error. Counter:' + str(n_error_counter) + ' of:' + str(n_max_error_count) + '\n' + output)
-                print oStatsStructure['time'] + ' ' + sMachineName + ': Got an error. Counter:' + str(n_error_counter) + ' of:' + \
-                    str(n_max_error_count) + '\n' + output
+                print time.strftime('%m/%d/%Y %H:%M:%S') + ' ' + sMachineName + ': everything is alive and well'
+                logger.info(time.strftime('%m/%d/%Y %H:%M:%S') + ' ' + sMachineName + ' everything is alive and well')
+                sLastGoodJSONEntry[iCointrraNum] = copy.deepcopy(sPrettyJSON)
 
-        elif bWarning == True:
-
-            sJsonContents = sPrettyJSON
-
-            print oStatsStructure['time'] + ' ' + output
-            print 'System warning '
-            print sJsonContents
-
-            logger.warning('System warning: ' + output)
-            logger.warning(sJsonContents)
-
-            cointerraSSH.ScpLogFile(cointerra_log_file)
-            cointerraSSH.compressFile(sMonitorLogFile, False)
-
-            if monitor_send_email_alerts:
-                SendEmail(from_addr = email_from, to_addr_list = [email_to], cc_addr_list = [],
-                          subject = email_warning_subject,
-                          message = output + '\n' + sJsonContents,
-                          login = email_login,
-                          password = email_password,
-                          sCGMinerLogfile = sLogFilePath + '/' + log_name + '.gz',
-                          sMonitorLogfile = sMonitorLogFile + '.gz')
+        if bWasAMachineRebooted == True: 
+            time.sleep(n_reboot_wait_time)
         else:
-            print time.strftime('%m/%d/%Y %H:%M:%S') + ' ' + sMachineName + ': everything is alive and well'
-            logger.info(time.strftime('%m/%d/%Y %H:%M:%S') + ' everything is alive and well')
-            sLastGoodJSONEntry = copy.deepcopy(sPrettyJSON)
-
-        # Sleep by increments of 1 second to catch the keyboard interrupt
-        for i in range(monitor_interval):
-            time.sleep(1)
+            # Sleep by increments of 1 second to catch the keyboard interrupt
+            for i in range(monitor_interval):
+                time.sleep(1)
 
         if bDebug:
             os.system('clear')
@@ -861,7 +902,15 @@ if __name__ == "__main__":
     command = sys.argv[1] if len(sys.argv) > 1 else None
     parameter = sys.argv[2] if len(sys.argv) > 2 else None
 
-    client = CgminerClient(cgminer_host, cgminer_port)
+    configJson = ''
+
+    myfile = open ("config.json", "r")
+    configJson=myfile.read()
+    decodedConfig = json.loads(configJson)
+
+    client = CgminerClient(decodedConfig['machines'][0]['cointerra_ip_address'], cgminer_port)
+
+    print decodedConfig
 
     if command:
         # An argument was specified, ask cgminer and exit
@@ -873,7 +922,7 @@ if __name__ == "__main__":
         try:
 
             #start the monitor
-            StartMonitor(client)
+            StartMonitor(client, decodedConfig)
 
         except KeyboardInterrupt:
             sys.exit(0)
