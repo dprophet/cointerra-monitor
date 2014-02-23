@@ -845,6 +845,7 @@ def StartMonitor(client, configs):
                                   message = output + '\n' + sJsonContents[iCointrraNum],
                                   login = email_login,
                                   password = email_password,
+                                  smtpserver = email_smtp_server,
                                   sCGMinerLogfile = sLogFilePath + '/' + log_name + '.gz',
                                   sMonitorLogfile = sMonitorLogFile + '.gz')
 
@@ -878,6 +879,7 @@ def StartMonitor(client, configs):
                               message = output + '\n' + sJsonContents[iCointrraNum],
                               login = email_login,
                               password = email_password,
+                              smtpserver = email_smtp_server,
                               sCGMinerLogfile = sLogFilePath + '/' + log_name + '.gz',
                               sMonitorLogfile = sMonitorLogFile + '.gz')
             else:
