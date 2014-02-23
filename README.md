@@ -12,13 +12,30 @@ cointerra-monitor
 Monitors the Cointerra Bitcoin Miners for Errors.  Sends emails with the cointerra log files attached and will reboot the cointerra machine
 
 To install and run this monitor
-1) Download and install Python 2.x
+1) Download and install Python 2.x. DO NOT USE Python 3.X!!!
+   - http://www.python.org/downloads/
 2) Install Python Package Index (pip)
+   - http://www.pip-installer.org/en/latest/installing.html
 3) Use pip and install paramiko
-4) Rename config_sample.json to config.json
-5) Edit the config.json file.  Add configurations for all of your Cointerra machines
-6) Then just run
+   Example:
+   sudo pip install paramiko
+4) Install git (the prefered mechanism over downloading source)
+   - http://git-scm.com/downloads
+   - Open a command shell, cd to the directory you want the code, and run
+     git clone https://github.com/dprophet/cointerra-monitor.git
+   - Note: For some of you Windows folks that want nice GUI download TortoiseGIT or Sourcetree
+   - If you want to fetch my latest changes do
+     git pull
+5) Rename config_sample.json to config.json
+6) Edit the config.json file.  Add configurations for all of your Cointerra machines
+7) Then just run
    python cointerra-monitor.py
+   - If everything is working correctly you will get success messages like
+     02/23/2014 07:12:56 MyCointerra1: everything is alive and well
+     02/23/2014 07:12:59 MyCointerra2: everything is alive and well
+   - If its not running correctly you will get programmer/debugging stack crash messages
+8) If all else fails, arrange a time with me, give me a BTC/LTC tip, and we can TeamView and I
+   will setup for you broke business guys (hopefully my colleagues read this!)
 
 Each Cointerra machine configuration supports N number of MobileMiners so N number of people
 can be notified of issues.  I like to take vacations as much as the next person.
@@ -41,15 +58,24 @@ As of 2/22/2014 the algorithm of the monitor is as follows
 9)  If there was no socket communications error with the Cointerra
       - Upload various stats on oStatsStructure to the MobileMiner Web API's.  Send stats for every configured MobileMiner
       - Check various stats on the oStatsStructure.  Set error flags and messages
+        - If number of dies and active dies are not the same set an error flag
+        - If an ASIC status is not 'Alive' the set an error flag
+        - If reject_percent > 5% set an error flag
+        - If the ASIC chip enabled is not 'Y' set an error flag
+      - Check various stats as warnings.  Warnings are the same as errors but warnings will not reboot the machine.
+        - If avg_core_temp or ambient_avg > max temperature set a warning flag.
+        - Loop through the core_temps array and check the temperature of all cores.  If over max set a warning flag 
 11) Check the error and socketerror flags.  If there were errors
       - Check to see if error count is 3 or over.  If error count less than 3 go back to #7
       - Print error messages to the console and log file
       - Send a message to MobileMiner
-      - SCP log files from the Cointerra machine
+      - SCP and GZIP log files from the Cointerra machine: cgminer.log
       - Reboot the cointerra
-      - GZIP compress the log files
-      - Create an email.  Attach the compressed log files
+      - GZIP the cointerra-monitor.log file
+      - Create an email.  Attach the GZIP compressed log files
       - Delete the compressed files
       - Sleep for 2 minutes to wait for the Cointerra to come back online
       - Go back to #7
-12) Sleep and wait for x period of time based on if machines were rebooted or not
+12)  Check for warning flags.  Warning flags are same as #11 above but do not reboot the machine
+     Currently the only warning flags are temperature
+13)  Sleep and wait for x period of time based on if machines were rebooted or not
