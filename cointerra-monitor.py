@@ -823,7 +823,7 @@ def StartMonitor(client, configs):
                     print 'Rebooting machine and sending email.  Will sleep for ' + str(n_reboot_wait_time) + ' seconds'
                     print sJsonContents[iCointrraNum]
 
-                    oMobileReporter.SendMessage('Foobar!  Rebooting ' + sMachineName)
+                    oMobileReporter.SendMessage('Fubar!  Rebooting ' + sMachineName)
 
                     logger.error('Rebooting machine ' + sMachineName + ' and sending email, error:' + str(n_error_counter) + \
                                  ' of:' + str(n_max_error_count)  + ' Will sleep for ' + str(n_reboot_wait_time) + ' seconds')
