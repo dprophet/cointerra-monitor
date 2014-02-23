@@ -1,3 +1,4 @@
+<pre>
 Copyright (c) 2014, Erik Andeson  eanders@pobox.com
 All rights reserved.
 https://github.com/dprophet/cointerra-monitor
@@ -83,3 +84,4 @@ As of 2/22/2014 the algorithm of the monitor is as follows
 12)  Check for warning flags.  Warning flags are same as #11 above but do not reboot the machine
      Currently the only warning flags are temperature
 13)  Sleep and wait for x period of time based on if machines were rebooted or not
+</pre>
