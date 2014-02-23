@@ -9,7 +9,8 @@ TIPS are appreciated.  None of us can afford to have these machines down:
 cointerra-monitor
 =================
 
-Monitors the Cointerra Bitcoin Miners for Errors.  Sends emails with the cointerra log files attached and will reboot the cointerra machine
+Monitors the Cointerra Bitcoin Miners for Errors.  Sends emails with the cointerra log files attached and will
+reboot the cointerra machine
 
 To install and run this monitor
 1) Download and install Python 2.x. DO NOT USE Python 3.X!!!
@@ -56,15 +57,18 @@ As of 2/22/2014 the algorithm of the monitor is as follows
       - Execute the stats RPC call
 8)  Parse all the RPC results from above and load to a Python datastructure (oStatsStructure)
 9)  If there was no socket communications error with the Cointerra
-      - Upload various stats on oStatsStructure to the MobileMiner Web API's.  Send stats for every configured MobileMiner
+      - Upload various stats on oStatsStructure to the MobileMiner Web API's.  Send stats for every
+        configured MobileMiner
       - Check various stats on the oStatsStructure.  Set error flags and messages
         - If number of dies and active dies are not the same set an error flag
         - If an ASIC status is not 'Alive' the set an error flag
         - If reject_percent > 5% set an error flag
         - If the ASIC chip enabled is not 'Y' set an error flag
-      - Check various stats as warnings.  Warnings are the same as errors but warnings will not reboot the machine.
+      - Check various stats as warnings.  Warnings are the same as errors but warnings will not reboot the
+        machine.
         - If avg_core_temp or ambient_avg > max temperature set a warning flag.
-        - Loop through the core_temps array and check the temperature of all cores.  If over max set a warning flag 
+        - Loop through the core_temps array and check the temperature of all cores.  If over max set a
+          warning flag 
 11) Check the error and socketerror flags.  If there were errors
       - Check to see if error count is 3 or over.  If error count less than 3 go back to #7
       - Print error messages to the console and log file
