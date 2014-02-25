@@ -68,12 +68,6 @@ import MobileMinerAdapter
 # Configurations
 #
 
-# This block of settings you MUST change for your system #############################
-
-sMobileMinerApiKey = ''    # Add your MobileMiner key here if you want this script to report for you
-
-# End of MUST change block ###########################################################
-
 cgminer_port = 4028
 cointerra_ssh_user = 'root'
 log_name = 'cgminer.log'
@@ -559,7 +553,7 @@ class CointerraSSH:
 # Utils
 #
 
-def SendEmail(from_addr, to_addr_list, cc_addr_list,
+def SendEmail(sMachineName, from_addr, to_addr_list, cc_addr_list,
               subject, message, login, password,
               smtpserver,
               sCGMinerLogfile = None,
@@ -683,7 +677,8 @@ def StartMonitor(client, configs):
             nMobileMinerCount = len(oCurrentMachine['mobileminer'])
 
             if nMobileMinerCount > 0 and oMobileReporter == None:
-                oMobileReporter = MobileMinerAdapter.MobileMinerAdapter(logger, sMobileMinerApiKey, sMachineName, email_to)
+                oMobileReporter = MobileMinerAdapter.MobileMinerAdapter(logger, oCurrentMachine['mobileminer'][0]['mobileminer_api_key'], \
+                                                                        sMachineName, email_to)
 
             logger.info('Checking machine ' + cgminer_host + '. Time=' + time.strftime('%m/%d/%Y %H:%M:%S'))
 
@@ -840,7 +835,7 @@ def StartMonitor(client, configs):
                     oSSH.compressFile(sMonitorLogFile, False)
 
                     if monitor_send_email_alerts:
-                        SendEmail(from_addr = email_from, to_addr_list = [email_to], cc_addr_list = [],
+                        SendEmail(sMachineName, from_addr = email_from, to_addr_list = [email_to], cc_addr_list = [],
                                   subject = email_error_subject,
                                   message = output + '\n' + sJsonContents[iCointrraNum],
                                   login = email_login,
@@ -874,7 +869,7 @@ def StartMonitor(client, configs):
                 oSSH.compressFile(sMonitorLogFile, False)
 
                 if monitor_send_email_alerts:
-                    SendEmail(from_addr = email_from, to_addr_list = [email_to], cc_addr_list = [],
+                    SendEmail(sMachineName, from_addr = email_from, to_addr_list = [email_to], cc_addr_list = [],
                               subject = email_warning_subject,
                               message = output + '\n' + sJsonContents[iCointrraNum],
                               login = email_login,
