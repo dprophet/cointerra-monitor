@@ -546,7 +546,8 @@ class CointerraSSH:
         except Exception as e:
             print 'Error thrown in compressFile ='
             print e
-            self.logger.error('Error in ScpLogFile. =' + str(e) + '\n' + traceback.format_exc()
+            self.logger.error('Error in ScpLogFile. =' + str(e) + '\n' + traceback.format_exc())
+
 
 
 
