@@ -459,7 +459,8 @@ class CointerraSSH:
         except Exception as e:
             print e
             self.logger.error('Error in reboot. =' + str(e) + '\n' + traceback.format_exc())
-            ssh_client.close()
+            if ssh_client:
+                ssh_client.close()
 
 
     # Executes a ps command on the cointerra looking for the cgminer program
@@ -494,7 +495,8 @@ class CointerraSSH:
             print 'Error thrown in isCGMinerRunning ='
             print e
             self.logger.error('Error in isCGMinerRunning. =' + str(e) + '\n' + traceback.format_exc())
-            ssh_client.close()
+            if ssh_client:
+                ssh_client.close()
 
         return bReturn
 
@@ -524,7 +526,8 @@ class CointerraSSH:
             print 'Error thrown in ScpLogFile ='
             print e
             self.logger.error('Error in ScpLogFile. =' + str(e) + '\n' + traceback.format_exc())
-            ssh_client.close()
+            if ssh_client:
+                ssh_client.close()
 
     def compressFile (self, sUncompressedFilename, bDeleteOriginalFile):
         #compress the log file.  Can be very large for emailing
@@ -543,9 +546,7 @@ class CointerraSSH:
         except Exception as e:
             print 'Error thrown in compressFile ='
             print e
-            self.logger.error('Error in ScpLogFile. =' + str(e) + '\n' + traceback.format_exc())
-            ssh_client.close()
-
+            self.logger.error('Error in ScpLogFile. =' + str(e) + '\n' + traceback.format_exc()
 
 
 
