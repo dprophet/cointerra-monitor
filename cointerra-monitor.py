@@ -89,7 +89,6 @@ max_core_temperature = 92.0  #maximum temperature of 1 core before a warning is 
 cointerra_min_mhs_sha256 = 1500000  #minimum expected hash rate for sha256, if under, warning is sent in MH/s
 
 n_devices = 0  #Total nunber of ASIC processors onboard.  We will query for the count.
-n_error_counter = 0
 n_max_error_count = 3  # How many errors before you reboot the cointerra
 n_reboot_wait_time = 120  #How many seconds after the the reboot of the cointerra before we restart the loop
 n_hardware_reboot_percentage = 5  #If the hardware error percentage is over this value we will reboot.  -1 to disable
@@ -152,9 +151,9 @@ class CgminerClient:
             self._send(sock, mycommand)
             received['message'] = self._receive(sock)
         except Exception as e:
-            received['error'] = 'SOCKET_ERROR: ' + str(e)
+            received['error'] = 'SOCKET_ERROR(' + self.host + '): ' + str(e)
             print received['error']
-            self.logger.error(received['error'] + str(e) + '\n' + traceback.format_exc())
+            self.logger.error(received['error'] + '\n' + traceback.format_exc())
             sock.close()
             return received
 
@@ -520,7 +519,12 @@ class CointerraSSH:
             # sFileName is of the remote TerraMiner.  Parse it to get the filename without the path
             spath, sname = os.path.split(sFileName)
 
-            self.compressFile(self.sLogFilePath + "/" + sname, True)
+            if os.path.isfile(self.sLogFilePath + "/" + sname) == True:
+                self.compressFile(self.sLogFilePath + "/" + sname, True)
+            else:
+                self.logger.error('Failed to SCP ' + sFileName + ' from host ' + self.host)
+
+            return True
 
         except Exception as e:
             print 'Error thrown in ScpLogFile ='
@@ -528,6 +532,8 @@ class CointerraSSH:
             self.logger.error('Error in ScpLogFile. =' + str(e) + '\n' + traceback.format_exc())
             if ssh_client:
                 ssh_client.close()
+
+            return False
 
     def compressFile (self, sUncompressedFilename, bDeleteOriginalFile):
         #compress the log file.  Can be very large for emailing
@@ -546,7 +552,7 @@ class CointerraSSH:
         except Exception as e:
             print 'Error thrown in compressFile ='
             print e
-            self.logger.error('Error in ScpLogFile. =' + str(e) + '\n' + traceback.format_exc())
+            self.logger.error('Error in compressFile. =' + str(e) + '\n' + traceback.format_exc())
 
 
 
@@ -583,16 +589,19 @@ def SendEmail(sMachineName, from_addr, to_addr_list, cc_addr_list,
 
         if sCGMinerLogfile:
 
-            part = email.MIMEBase.MIMEBase('application', "octet-stream")
-            part.set_payload(open(sCGMinerLogfile, "rb").read())
-            email.Encoders.encode_base64(part)
+            # SCP sometimes fails to copy a log file.  Check before trying to attach
+            if os.path.isfile(sCGMinerLogfile) == True:
+                part = email.MIMEBase.MIMEBase('application', "octet-stream")
+                part.set_payload(open(sCGMinerLogfile, "rb").read())
+                email.Encoders.encode_base64(part)
 
-            part.add_header('Content-Disposition', 'attachment; filename="cgminer.log.gz"')
+                part.add_header('Content-Disposition', 'attachment; filename="cgminer.log.gz"')
 
-            msg.attach(part)
+                msg.attach(part)
 
         if sMonitorLogfile:
 
+            # Dont check for log file existence,  We should crash if no file so we can see the error
             part = email.MIMEBase.MIMEBase('application', "octet-stream")
             part.set_payload(open(sMonitorLogfile, "rb").read())
             email.Encoders.encode_base64(part)
@@ -617,7 +626,6 @@ def StartMonitor(client, configs):
     internet_lost = 0
     internet_reconnected = 0
     bError = False
-    global n_error_counter
     global n_devices
     global n_ambient_temperature
     global n_hardware_reboot_percentage
@@ -643,9 +651,11 @@ def StartMonitor(client, configs):
 
     sJsonContents = []
     sLastGoodJSONEntry = []
+    nErrorCounterArray = []
     for iCount in range(nCointerraCoint):
         sJsonContents.append('')
         sLastGoodJSONEntry.append('')
+        nErrorCounterArray.append(0)
 
     oMobileReporter = None
     oSSH = None
@@ -767,17 +777,17 @@ def StartMonitor(client, configs):
                 for iCount in range(oStatsStructure['asics']['asic_count']):
                     oAsic = oStatsStructure['asics']['asics_array'][iCount]
                     if oAsic['status'] != 'Alive':
-                        n_error_counter = n_error_counter + 1
+                        nErrorCounterArray[iCointrraNum] = nErrorCounterArray[iCointrraNum] + 1
                         output = output + '\n Asic #' + str(iCount) + ' bad status =' + oAsic['status']
                         bError = True
                         break
                     elif oAsic['reject_percent'] > n_hardware_reboot_percentage:
-                        n_error_counter = n_error_counter + 1
+                        nErrorCounterArray[iCointrraNum] = nErrorCounterArray[iCointrraNum] + 1
                         output = output + '\n Asic #' + str(iCount) + ' Hardware Errors too high ' + str(oAsic['reject_percent'])
                         bError = True
                         break
                     elif oAsic['enabled'] != 'Y':
-                        n_error_counter = n_error_counter + 1
+                        nErrorCounterArray[iCointrraNum] = nErrorCounterArray[iCointrraNum] + 1
                         output = output + '\n Asic #' + str(iCount) + ' enabled= ' + oAsic['enabled']
                         bError = True
                         break
@@ -790,7 +800,7 @@ def StartMonitor(client, configs):
                             output = output + '\n ASIC ID=' + oStat['id'] + ' has a high temperature. avg_core_temp=' + str(oStat['avg_core_temp']) + \
                                 ' ambient_avg=' + str(oStat['ambient_avg'])
                         elif oStat['dies'] != oStat['dies_active']:
-                            n_error_counter = n_error_counter + 1
+                            nErrorCounterArray[iCointrraNum] = nErrorCounterArray[iCointrraNum] + 1
                             output = output + '\n' + oStat['id'] + ' has ' + str(oStat['dies_active']) + ' dies but only ' + \
                                 str(oStat['dies']) + ' are active'
                             bError = True
@@ -804,10 +814,10 @@ def StartMonitor(client, configs):
 
 
             else:
-                n_error_counter = n_error_counter + 1
+                nErrorCounterArray[iCointrraNum] = nErrorCounterArray[iCointrraNum] + 1
 
             if (bError == True) or (bSocketError == True):
-                if n_error_counter > n_max_error_count:
+                if nErrorCounterArray[iCointrraNum] > n_max_error_count:
                     sJsonContents[iCointrraNum] = ''
 
                     # If a socket error use the last known good JSON contents
@@ -822,7 +832,7 @@ def StartMonitor(client, configs):
 
                     oMobileReporter.SendMessage('Fubar!  Rebooting ' + sMachineName)
 
-                    logger.error('Rebooting machine ' + sMachineName + ' and sending email, error:' + str(n_error_counter) + \
+                    logger.error('Rebooting machine ' + sMachineName + ' and sending email, error:' + str(nErrorCounterArray[iCointrraNum]) + \
                                  ' of:' + str(n_max_error_count)  + ' Will sleep for ' + str(n_reboot_wait_time) + ' seconds')
                     if len(sJsonContents[iCointrraNum]) > 0:
                         logger.debug(sJsonContents[iCointrraNum])
@@ -850,10 +860,10 @@ def StartMonitor(client, configs):
 
                     time.sleep(n_reboot_wait_time)
 
-                    n_error_counter = 0  # Reset the error counter
+                    nErrorCounterArray[iCointrraNum] = 0  # Reset the error counter
                 else:
-                    logger.warning('Got an error. Counter:' + str(n_error_counter) + ' of:' + str(n_max_error_count) + '\n' + output)
-                    print oStatsStructure['time'] + ' ' + sMachineName + ': Got an error. Counter:' + str(n_error_counter) + ' of:' + \
+                    logger.warning('Got an error. Counter:' + str(nErrorCounterArray[iCointrraNum]) + ' of:' + str(n_max_error_count) + '\n' + output)
+                    print oStatsStructure['time'] + ' ' + sMachineName + ': Got an error. Counter:' + str(nErrorCounterArray[iCointrraNum]) + ' of:' + \
                         str(n_max_error_count) + '\n' + output
 
             elif bWarning == True:
@@ -880,6 +890,7 @@ def StartMonitor(client, configs):
                               sCGMinerLogfile = sLogFilePath + '/' + log_name + '.gz',
                               sMonitorLogfile = sMonitorLogFile + '.gz')
             else:
+                nErrorCounterArray[iCointrraNum] = 0
                 print time.strftime('%m/%d/%Y %H:%M:%S') + ' ' + sMachineName + ': everything is alive and well'
                 logger.info(time.strftime('%m/%d/%Y %H:%M:%S') + ' ' + sMachineName + ' everything is alive and well')
                 sLastGoodJSONEntry[iCointrraNum] = copy.deepcopy(sPrettyJSON)
