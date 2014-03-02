@@ -440,8 +440,8 @@ class CointerraSSH:
     def reboot(self):
 
         try:
-            self.logger.error('Rebooting the cointerra')
-            print 'Rebooting the cointerra'
+            self.logger.error('Rebooting the cointerra ' + self.host)
+            print 'Rebooting the cointerra ' + self.host
             ssh_client = self.createSSHClient()
             transport = ssh_client.get_transport()
             session = transport.open_session()
@@ -452,8 +452,8 @@ class CointerraSSH:
 
             time.sleep(5)
             ssh_client.close()
-            print 'Cointerra has been rebooted'
-            self.logger.error('Cointerra has been rebooted')
+            print 'Cointerra ' + + self.host + ' has been rebooted'
+            self.logger.error('Cointerra ' + self.host + ' has been rebooted')
 
         except Exception as e:
             print e
