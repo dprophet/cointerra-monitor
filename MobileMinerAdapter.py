@@ -42,7 +42,7 @@ import traceback
 
 class MobileMinerAdapter:
 
-    def __init__(self, logger, sAppKey, sMachineName, sEmailAddress, nTimeout=15):
+    def __init__(self, logger, sAppKey, sMachineName, sEmailAddress, nTimeout=8):
         self.logger = logger
         self.sApiKey = 'eqezq3oOb9fWhD'  # This is static for this particular cointerra-monitor application.  Dont change it
         self.sAppKey = sAppKey
@@ -153,4 +153,53 @@ class MobileMinerAdapter:
                               sPostURL + '\nsJsonData=' + sJsonData + '\n' + traceback.format_exc())
             print 'Error posting data to MultiMiner Exception: ' + str(e) + '\nURL=' + \
                               sPostURL + '\nsJsonData=' + sJsonData + '\n' + traceback.format_exc()
+
+
+    # This sends a message to the mobile miner application
+    def GetCommands (self):
+        sPostURL ='https://mobileminer.azurewebsites.net/api/RemoteCommands?emailAddress='+ self.sEmail + \
+            '&machineName=' + self.sMachineName + '&applicationKey=' + self.sAppKey + '&apiKey=' + self.sApiKey
+
+        try: 
+            self.logger.info('Requesting commands from mobileminer')
+            oRequest = urllib2.Request(sPostURL)
+            response = urllib2.urlopen(oRequest, None, 10)
+            sResponse = response.read()
+            decoded = json.loads(sResponse.replace('\x00', ''))
+            if len(decoded) > 0:
+                self.logger.info('Got messages from MobileMiner site.   sResponse=' + sResponse + ', len=' + str(len(sResponse)))
+                print 'Got messages from MobileMiner site.   sResponse=' + sResponse + ', len=' + str(len(sResponse))
+            return decoded
+        except Exception as e:
+            self.logger.error('Error getting commands from MultiMiner Exception: ' + str(e) + '\nURL=' + \
+                              sPostURL + '\n' + traceback.format_exc())
+            print 'Error getting commands from MultiMiner Exception: ' + str(e) + '\nURL=' + \
+                              sPostURL + '\n' + traceback.format_exc()
+            return None
+
+    # This sends a message to the mobile miner application
+    def DeleteCommand (self, nCommandID):
+        sPostURL ='https://mobileminer.azurewebsites.net/api/RemoteCommands?emailAddress='+ self.sEmail + \
+            '&machineName=' + self.sMachineName + '&applicationKey=' + self.sAppKey + '&commandId=' + str(nCommandID) + '&apiKey=' + self.sApiKey
+
+        try: 
+            self.logger.info('Requesting commands from mobileminer')
+            oRequest = urllib2.Request(sPostURL)
+            oRequest.get_method = lambda: 'DELETE'   # creates the delete method
+            response = urllib2.urlopen(oRequest, None, 10)
+            sResponse = response.read()
+            if len(sResponse) > 0:
+                print 'sResponse from delete =' + sResponse
+                decoded = json.loads(sResponse.replace('\x00', ''))
+                if len(decoded) > 0:
+                    self.logger.info('Got delete command(' + str(nCommandID) + ') from MobileMiner site.   sResponse=' + \
+                                     sResponse + ', len=' + str(len(sResponse)))
+                    print 'Got delete command from MobileMiner site.   sResponse=' + sResponse + ', len=' + str(len(sResponse))
+            return None
+        except Exception as e:
+            self.logger.error('Error delete command from MultiMiner Exception: ' + str(e) + '\nURL=' + \
+                              sPostURL + '\n' + traceback.format_exc())
+            print 'Error delete command from MultiMiner Exception: ' + str(e) + '\nURL=' + \
+                              sPostURL + '\n' + traceback.format_exc()
+            return None
 

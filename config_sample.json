@@ -10,10 +10,12 @@
         "email_from": "my@email.com",
         "mobileminer" : [{
             "mobileminer_api_key": "1234-5678-9101",
-            "mobileminer_email": "my@email.com"
+            "mobileminer_email": "my@email.com",
+            "remote_commands": true
         }, {
             "mobileminer_api_key": "2345-6789-1101",
-            "mobileminer_email": "some_other_person@email,com"
+            "mobileminer_email": "some_other_person@email,com",
+            "remote_commands": false
         }, {
             "mobileminer_api_key": "3456-7891-1011",
             "mobileminer_email": "some_other_person2@email,com"

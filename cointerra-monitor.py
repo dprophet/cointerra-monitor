@@ -81,7 +81,7 @@ email_error_subject = 'Error'      #subject of emails for errors (these are seri
 
 monitor_interval = 30  #interval between checking the cointerra status (in seconds), Ideal if using MobileMiner
 monitor_wait_after_email = 60  #waits 60 seconds after the status email was sent
-monitor_restart_cointerra_if_sick = True  #should we reboot the cointerra if sick/dead. This should ALWAYS be set to true except development/artificial errors
+monitor_restart_cointerra_if_sick = False  #should we reboot the cointerra if sick/dead. This should ALWAYS be set to true except development/artificial errors
 monitor_send_email_alerts = True  #should emails be sent containing status information, etc.
 
 max_temperature = 80.0  #maximum temperature before a warning is sent in Celcius
@@ -168,7 +168,7 @@ class CgminerClient:
             decoded = json.loads(received['message'].replace('\x00', ''))
             myprettyjson = json.dumps(decoded, sort_keys=True, indent=4)
 
-            self.logger.debug('Received command results=' + myprettyjson)
+            self.logger.debug('Received command(' + command + ') results=' + myprettyjson)
             received['message'] = decoded
             received['error'] = None
             return received
@@ -462,6 +462,37 @@ class CointerraSSH:
                 ssh_client.close()
 
 
+
+    def ReturnCommandOutput(self, sCommand):
+
+        sData = ""
+
+        try:
+            self.logger.info('Executing command ' + sCommand + ' on cointerra ' + self.host)
+            ssh_client = self.createSSHClient()
+            transport = ssh_client.get_transport()
+            session = transport.open_session()
+            session.exec_command(sCommand)
+            time.sleep(1)
+
+            # Read everything on the socket
+            while session.recv_ready():
+                sData += session.recv(1024)
+
+            ssh_client.close()
+
+
+        except Exception as e:
+            print e
+            self.logger.error('Error in command "' + sCommand + '" =' + str(e) + '\n' + traceback.format_exc())
+            if ssh_client:
+                ssh_client.close()
+
+        # Convert string to utf-8 because some non-ascii char
+        return unicode(sData, "utf-8")
+
+
+
     # Executes a ps command on the cointerra looking for the cgminer program
     def isCGMinerRunning(self):
         bReturn = False
@@ -501,6 +532,8 @@ class CointerraSSH:
 
     def ScpLogFile(self, sFileName):
 
+        bReturn = False
+
         try:
 
             self.logger.info('SCP file:' + sFileName + ' from host ' + self.host)
@@ -521,10 +554,9 @@ class CointerraSSH:
 
             if os.path.isfile(self.sLogFilePath + "/" + sname) == True:
                 self.compressFile(self.sLogFilePath + "/" + sname, True)
+                bReturn = True
             else:
                 self.logger.error('Failed to SCP ' + sFileName + ' from host ' + self.host)
-
-            return True
 
         except Exception as e:
             print 'Error thrown in ScpLogFile ='
@@ -533,7 +565,7 @@ class CointerraSSH:
             if ssh_client:
                 ssh_client.close()
 
-            return False
+        return bReturn
 
     def compressFile (self, sUncompressedFilename, bDeleteOriginalFile):
         #compress the log file.  Can be very large for emailing
@@ -564,6 +596,7 @@ class CointerraSSH:
 def SendEmail(sMachineName, from_addr, to_addr_list, cc_addr_list,
               subject, message, login, password,
               smtpserver,
+              file_logger,
               sCGMinerLogfile = None,
               sMonitorLogfile = None):
 
@@ -573,11 +606,16 @@ def SendEmail(sMachineName, from_addr, to_addr_list, cc_addr_list,
         header += 'Cc: %s\n' % ','.join(cc_addr_list)
         header += 'Subject: %s\n\n' % (email_subject_prefix + '_' + sMachineName + ': ' + subject)
 
-        server = smtplib.SMTP(smtpserver)
-        server.starttls()
-        server.login(login, password)
-        server.sendmail(from_addr, to_addr_list, header + message)
-        server.quit()
+        try:
+            server = smtplib.SMTP(smtpserver)
+            server.starttls()
+            server.login(login, password)
+            server.sendmail(from_addr, to_addr_list, header + message)
+            server.quit()
+        except Exception as e:
+            print "Error sending email for machine=" + sMachineName + '\n' + str(e) + '\n' + traceback.format_exc()
+            file_logger.error("Error sending email for machine=" + sMachineName + '\n' + str(e) + '\n' + traceback.format_exc())
+
     else:
 
         msg = email.MIMEMultipart.MIMEMultipart()
@@ -610,12 +648,15 @@ def SendEmail(sMachineName, from_addr, to_addr_list, cc_addr_list,
 
             msg.attach(part)
 
-
-        server = smtplib.SMTP(smtpserver)
-        server.starttls()
-        server.login(login, password)
-        server.sendmail(from_addr, to_addr_list, msg.as_string())
-        server.quit()
+        try:
+            server = smtplib.SMTP(smtpserver)
+            server.starttls()
+            server.login(login, password)
+            server.sendmail(from_addr, to_addr_list, msg.as_string())
+            server.quit()
+        except Exception as e:
+            print "Error sending email for machine=" + sMachineName + '\n' + str(e) + '\n' + traceback.format_exc()
+            file_logger.error("Error sending email for machine=" + sMachineName + '\n' + str(e) + '\n' + traceback.format_exc())
 
 
 # This is the main execution module
@@ -652,6 +693,7 @@ def StartMonitor(client, configs):
     sJsonContents = []
     sLastGoodJSONEntry = []
     nErrorCounterArray = []
+    nMobileMinerCommandIDs = []
     for iCount in range(nCointerraCoint):
         sJsonContents.append('')
         sLastGoodJSONEntry.append('')
@@ -677,6 +719,8 @@ def StartMonitor(client, configs):
             must_send_email = False
             must_restart = False
 
+            nMobileMinerCount = 0
+
             # Get settings from the config JSON file for this loop
             cgminer_host = oCurrentMachine['cointerra_ip_address']
             cointerra_ssh_pass = oCurrentMachine['root_password']
@@ -686,7 +730,8 @@ def StartMonitor(client, configs):
             email_from = oCurrentMachine['email_from']
             email_to = oCurrentMachine['email_to']
             sMachineName = oCurrentMachine['machine_name']
-            nMobileMinerCount = len(oCurrentMachine['mobileminer'])
+            if 'mobileminer' in oCurrentMachine:
+                nMobileMinerCount = len(oCurrentMachine['mobileminer'])
 
             if nMobileMinerCount > 0 and oMobileReporter == None:
                 oMobileReporter = MobileMinerAdapter.MobileMinerAdapter(logger, oCurrentMachine['mobileminer'][0]['mobileminer_api_key'], \
@@ -750,6 +795,9 @@ def StartMonitor(client, configs):
             else:
                 output = output + '\n\n' + result['error']
                 bSocketError = True
+
+            #  We dont do anything with this command.  Just want it printed to the log file
+            result = client.command('devs', None)
 
             # Make it more human readable
             sPrettyJSON = json.dumps(oStatsStructure, sort_keys=False, indent=4)
@@ -830,12 +878,24 @@ def StartMonitor(client, configs):
                     print 'Rebooting machine and sending email.  Will sleep for ' + str(n_reboot_wait_time) + ' seconds'
                     print sJsonContents[iCointrraNum]
 
-                    oMobileReporter.SendMessage('Fubar!  Rebooting ' + sMachineName)
+                    if oMobileReporter != None:
+                        if nMobileMinerCount > 0:
+                            for iMobileMinerCointer in range(nMobileMinerCount):
+                                oMobileReporter.SetAppKey(oCurrentMachine['mobileminer'][iMobileMinerCointer]['mobileminer_api_key'])
+                                oMobileReporter.SetEmailAddress(oCurrentMachine['mobileminer'][iMobileMinerCointer]['mobileminer_email'])
+                                oMobileReporter.SendMessage('Fubar!  Rebooting ' + sMachineName)
+
 
                     logger.error('Rebooting machine ' + sMachineName + ' and sending email, error:' + str(nErrorCounterArray[iCointrraNum]) + \
                                  ' of:' + str(n_max_error_count)  + ' Will sleep for ' + str(n_reboot_wait_time) + ' seconds')
                     if len(sJsonContents[iCointrraNum]) > 0:
                         logger.debug(sJsonContents[iCointrraNum])
+
+                    sDMesg = oSSH.ReturnCommandOutput('/bin/dmesg')
+                    sLsusb = oSSH.ReturnCommandOutput('/usr/bin/lsusb')
+
+                    logger.debug('dmesg on machine ' + sMachineName + '\n' + sDMesg)
+                    logger.debug('lsusb on machine ' + sMachineName + '\n' + sLsusb)
 
                     oSSH.ScpLogFile(cointerra_log_file)
 
@@ -853,12 +913,11 @@ def StartMonitor(client, configs):
                                   login = email_login,
                                   password = email_password,
                                   smtpserver = email_smtp_server,
+                                  file_logger = logger,
                                   sCGMinerLogfile = sLogFilePath + '/' + log_name + '.gz',
                                   sMonitorLogfile = sMonitorLogFile + '.gz')
 
                     os.remove(sLogFilePath + '/' + log_name + '.gz')
-
-                    time.sleep(n_reboot_wait_time)
 
                     nErrorCounterArray[iCointrraNum] = 0  # Reset the error counter
                 else:
@@ -887,6 +946,7 @@ def StartMonitor(client, configs):
                               login = email_login,
                               password = email_password,
                               smtpserver = email_smtp_server,
+                              file_logger = logger,
                               sCGMinerLogfile = sLogFilePath + '/' + log_name + '.gz',
                               sMonitorLogfile = sMonitorLogFile + '.gz')
             else:
@@ -894,6 +954,86 @@ def StartMonitor(client, configs):
                 print time.strftime('%m/%d/%Y %H:%M:%S') + ' ' + sMachineName + ': everything is alive and well'
                 logger.info(time.strftime('%m/%d/%Y %H:%M:%S') + ' ' + sMachineName + ' everything is alive and well')
                 sLastGoodJSONEntry[iCointrraNum] = copy.deepcopy(sPrettyJSON)
+
+            # This large block of code processes commands from your MobileMiner.  Currently I only support RESTART
+            # which will reboot your cointerra.  START and STOP are not supported as I dont see good mappings between
+            # the cgminer RPC command list and the MobileMiner START/STOP
+            if oMobileReporter != None:
+                if nMobileMinerCount > 0:
+                    oMobileReporter.SetMachineName(sMachineName)
+
+                    for iMobileMinerCointer in range(nMobileMinerCount):
+                        if 'remote_commands' in oCurrentMachine['mobileminer'][iMobileMinerCointer] and \
+                            oCurrentMachine['mobileminer'][iMobileMinerCointer]['remote_commands'] == True:
+
+                            iCmdLen = 0
+                            sMobileMinerEmail = oCurrentMachine['mobileminer'][iMobileMinerCointer]['mobileminer_email']
+                            oMobileReporter.SetAppKey(oCurrentMachine['mobileminer'][iMobileMinerCointer]['mobileminer_api_key'])
+                            oMobileReporter.SetEmailAddress(sMobileMinerEmail)
+                            oCommands = oMobileReporter.GetCommands()
+
+                            if oCommands:
+                                iCmdLen = len(oCommands)
+
+                            if iCmdLen > 0:
+                                for iCmdCount in range(iCmdLen):
+                                    nCmdID = oCommands[iCmdCount]['Id']
+                                    sCmdString = oCommands[iCmdCount]['CommandText']
+
+                                    if nCmdID in nMobileMinerCommandIDs:
+                                        logger.debug('CmdString=' + sCmdString + ', CommandID(' + str(nCmdID) + \
+                                                     ') already in array.  Dont double process')
+                                    else:
+                                        logger.debug('Received new command:' + sCmdString + ' from ' + \
+                                                     sMobileMinerEmail + \
+                                                     ', CommandID(' + str(nCmdID) + '), Machine=' + sMachineName)
+                                        print 'Received new command:' + sCmdString + ' from ' + \
+                                                     sMobileMinerEmail + \
+                                                     ', CommandID(' + str(nCmdID) + '), Machine=' + sMachineName
+
+                                        # Safety array so we make sure we dont double process commands.
+                                        # MobileMiner website sometimes times out and may not delete the command
+                                        nMobileMinerCommandIDs.append(nCmdID)
+
+                                        if sCmdString == 'RESTART':
+                                            print 'Received a RESTART. Rebooting ' + sMachineName
+
+                                            sDMesg = oSSH.ReturnCommandOutput('/bin/dmesg')
+                                            sLsusb = oSSH.ReturnCommandOutput('/usr/bin/lsusb')
+
+                                            logger.debug('dmesg on machine ' + sMachineName + '\n' + sDMesg)
+                                            logger.debug('lsusb on machine ' + sMachineName + '\n' + sLsusb)
+
+                                            oSSH.ScpLogFile(cointerra_log_file)
+
+                                            oSSH.reboot()
+                                            bWasAMachineRebooted = True   # Will cause us to sleep for a while
+
+                                            # compress the log file to make smaller before we email it
+                                            oSSH.compressFile(sMonitorLogFile, False)
+
+                                            if monitor_send_email_alerts:
+                                                SendEmail(sMachineName, from_addr = email_from, to_addr_list = [email_to], cc_addr_list = [],
+                                                          subject = 'Machine ' + sMachineName + ', was remotely rebooted by ' + sMobileMinerEmail,
+                                                          message = 'Machine ' + sMachineName + ', was remotely rebooted by ' + sMobileMinerEmail,
+                                                          login = email_login,
+                                                          password = email_password,
+                                                          smtpserver = email_smtp_server,
+                                                          file_logger = logger,
+                                                          sCGMinerLogfile = sLogFilePath + '/' + log_name + '.gz',
+                                                          sMonitorLogfile = sMonitorLogFile + '.gz')
+
+                                            os.remove(sLogFilePath + '/' + log_name + '.gz')
+
+                                        elif sCmdString == 'STOP':
+                                            print 'This is a STOP command.  We dont support STOP commands'
+                                        elif sCmdString == 'START':
+                                            print 'This is a START command.  We dont support START commands'
+
+                                    # Delete the command from the mobileminer website
+                                    oMobileReporter.DeleteCommand(nCmdID)
+
+
 
         if bWasAMachineRebooted == True: 
             time.sleep(n_reboot_wait_time)
@@ -938,7 +1078,7 @@ if __name__ == "__main__":
             sys.exit(0)
         except Exception as e:
             # Its important to crash/shutdown here until all bugs are gone.
-            print 'Error thrown in mail execution path ='
+            print 'Error thrown in main execution path ='
             print e
             print 'Traceback =' + traceback.format_exc()
             client.logger.error('Error thrown in mail execution path =' + str(e) + '\n' + traceback.format_exc())

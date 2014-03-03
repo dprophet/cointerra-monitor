@@ -13,7 +13,12 @@ cointerra-monitor
 Monitors the Cointerra Bitcoin Miners for Errors.  Sends emails with the cointerra log
 files attached and will reboot the cointerra machine
 
-To install and run this monitor
+Remote monitoring agent for the Cointerra Terraminer Bitcoin Mining machines. Monitors
+for errors, sends email notifications and log files, full integration with MobileMiner
+on IOS/Android/Windows Phone. Remotely reboots Cointerra in event of critical errors.
+Supports RESTART command from MobileMiner
+
+To install and run this monitor (See windows instructions below)
 1) Download and install Python 2.x. DO NOT USE Python 3.X!!!
    - http://www.python.org/downloads/
 2) Install Python Package Index (pip)
@@ -38,7 +43,23 @@ To install and run this monitor
      02/23/2014 07:12:59 MyCointerra2: everything is alive and well
    - If its not running correctly you will get programmer/debugging stack crash messages
 8) If all else fails, arrange a time with me, give me a BTC/LTC tip, and we can TeamView
-   and I will setup for you broke business guys (hopefully my colleagues read this!)
+   and I will setup for you.
+
+
+For Windows 7 install here are the instructions (Contrinuted by Emba)
+   http://forum.cointerra.com/threads/cointerra-monitoring-agent-with-email-mobileminer-support.442/#post-2092
+1. Install python-2.7.6.amd64.msi (or the 32bit version if required)
+   make sure to install it to c:/python27
+2. install pycrypto-2.6.win-amd64-py2.7.exe
+3. extract monitor final.zip
+4. copy all files inside the zip into C:/python27
+5. Run ez_setup.bat which will install easy_install
+6. run ecdsa.bat
+7. open the config.json file with notepad or your chosen text editor and add in your
+   mobile miner API key and email and your email address for alerts if required
+8. now simply run start.bat and it should start the monitor (there are some errors
+   at the start but it seems to run ok)
+9. Do steps 4-8 above under "To install and run this monitor"
 
 Each Cointerra machine configuration supports N number of MobileMiners so N number of
 people can be notified of issues.  I like to take vacations as much as the next person.
@@ -86,5 +107,7 @@ As of 2/22/2014 the algorithm of the monitor is as follows
       - Go back to #7
 12)  Check for warning flags.  Warning flags are same as #11 above but do not reboot the
      machine.  Currently the only warning flags are temperature
-13)  Sleep and wait for x period of time based on if machines were rebooted or not
+13)  Checks MobileMiner system for remote commands.  Currently I only support RESTART
+     which will reboot the cointerra.
+14)  Sleep and wait for x period of time based on if machines were rebooted or not
 </pre>
