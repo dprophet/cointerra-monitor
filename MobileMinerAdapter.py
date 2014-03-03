@@ -42,7 +42,7 @@ import traceback
 
 class MobileMinerAdapter:
 
-    def __init__(self, logger, sAppKey, sMachineName, sEmailAddress, nTimeout=8):
+    def __init__(self, logger, sAppKey, sMachineName, sEmailAddress, nTimeout=12):
         self.logger = logger
         self.sApiKey = 'eqezq3oOb9fWhD'  # This is static for this particular cointerra-monitor application.  Dont change it
         self.sAppKey = sAppKey
