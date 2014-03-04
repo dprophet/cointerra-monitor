@@ -1,5 +1,5 @@
 <pre>
-Copyright (c) 2014, Erik Andeson  eanders@pobox.com
+Copyright (c) 2014, Erik Anderson  eanders@pobox.com
 All rights reserved.
 https://github.com/dprophet/cointerra-monitor
 TIPS are appreciated.  None of us can afford to have these machines down:
