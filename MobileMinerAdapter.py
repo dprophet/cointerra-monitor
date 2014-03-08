@@ -1,6 +1,6 @@
 # Standard BSD license, blah blah, with 1 modification below
 
-# Copyright (c) 2014, Erik Andeson  eanders@pobox.com
+# Copyright (c) 2014, Erik Anderson  eanders@pobox.com
 # All rights reserved.
 # https://github.com/dprophet/cointerra-monitor
 # TIPS are appreciated.  None of us can afford to have these machines down:
@@ -42,26 +42,36 @@ import traceback
 
 class MobileMinerAdapter:
 
-    def __init__(self, logger, sAppKey, sMachineName, sEmailAddress, nTimeout=12):
+    '''
+    Build the oInStructure should looke like this
+    {
+        "1234-5678-9010": {
+            "machines": [
+                "CointerraName1",
+                "CointerraName2"
+            ],
+            "mobileminer_email": "my@email.com",
+            "remote_commands": [
+                true,
+                false
+            ]
+        }
+    }
+    '''
+
+
+    def __init__(self, logger, oInMobileStructure, nTimeout=15):
         self.logger = logger
         self.sApiKey = 'eqezq3oOb9fWhD'  # This is static for this particular cointerra-monitor application.  Dont change it
-        self.sAppKey = sAppKey
-        self.sMachineName = sMachineName
-        self.sEmail = sEmailAddress
-        self.OutData = []
+        self.oMobileStructure = oInMobileStructure
+        self.MachineData = []
         self.timeout = nTimeout
 
-    def SetMachineName (self, sMachineName):
-        self.sMachineName = sMachineName
-
-    def SetAppKey (self, sAppKey):
-        self.sAppKey = sAppKey
-
-    def SetEmailAddress (self, sEmailAddress):
-        self.sEmail = sEmailAddress
+    def SetMobileStructure (self, oInMobileStructure):
+        self.oMobileStructure = oInMobileStructure
 
     def ClearData (self):
-        self.OutData = []
+        self.MachineData = []
 
     def addDevices (self, oInStatsStructure):
 
@@ -77,13 +87,14 @@ class MobileMinerAdapter:
                     sAsicID = oAsic['name'] + str(oAsic['id'])
                     if sAsicID == sStatId:
                         oAsicMatch = oAsic
-                        break;
+                        break
 
                 if oAsicMatch == None:
                     raise RuntimeError("Could not find matching Asic for stat id=" + sStatId)
 
 
                 device = dict()
+                device[u'MachineName'] = oInStatsStructure['machine_name']
                 device[u'MinerName'] = 'CointerraMonitor'
                 device[u'CoinSymbol'] = 'BTC'
                 device[u'CoinName'] = 'Bitcoin'
@@ -109,33 +120,53 @@ class MobileMinerAdapter:
                 device[u'LastShareTime'] = oAsicMatch['last_share_t']
                 device[u'LastValidWork'] = oAsicMatch['last_valid_t']
 
-                self.OutData.append(device)	
+                self.MachineData.append(device)
 
 
+    # Sends all of the stats for all machines to all mobileminers.
     def SendStats (self):
-        sPostURL ='https://mobileminer.azurewebsites.net/api/MiningStatisticsInput?emailAddress='+ self.sEmail + \
-            '&applicationKey=' + self.sAppKey + '&machineName=' + self.sMachineName + '&apiKey=' + self.sApiKey
 
-        sJsonData = ""
+        if len(self.MachineData) == 0:
+            return
 
-        try:
-            self.logger.info('Sending stats to mobileminer') 
-            oRequest = urllib2.Request(sPostURL)
-            oRequest.add_header('Content-Type', 'application/json')
-            sJsonData = json.dumps(self.OutData)
-            response = urllib2.urlopen(oRequest, sJsonData, self.timeout)
-            self.logger.info('Successfully sent stats to mobileminer')
-        except Exception as e:
-            self.logger.error('Error posting stats data to MultiMiner Exception: ' + str(e) + '\nURL=' + \
-                              sPostURL + '\nsJsonData=' + sJsonData + '\n' + traceback.format_exc())
-            print 'Error posting data to MultiMiner Exception: ' + str(e) + '\nURL=' + \
-                              sPostURL + '\nsJsonData=' + sJsonData + '\n' + traceback.format_exc()
+        self.logger.info('Sending stats to mobileminer')
+
+        for sAppKey in self.oMobileStructure:
+            print 'sAppKey=', sAppKey
+            oKeyValue = self.oMobileStructure[sAppKey]
+
+            oMachineArray = []
+
+            for iCount in range(len(self.MachineData)):
+                oMachine = self.MachineData[iCount]
+                if oMachine['MachineName'] in oKeyValue['machines']:
+                    # Yes, this mobileminer is watching this machine.  Add to the outgoing array
+                    oMachineArray.append(oMachine)
+
+            if len(oMachineArray) > 0:
+                sPostURL = sPostURL ='https://mobileminer.azurewebsites.net/api/MiningStatisticsInput?emailAddress='+ \
+                                     oKeyValue['mobileminer_email'] + '&applicationKey=' + sAppKey + '&apiKey=' + self.sApiKey
+
+                sJsonData = ""
+
+                try:
+                    oRequest = urllib2.Request(sPostURL)
+                    oRequest.add_header('Content-Type', 'application/json')
+                    sJsonData = json.dumps(oMachineArray)
+                    #sJsonData = json.dumps(oMachineArray, sort_keys=True, indent=4)
+                    response = urllib2.urlopen(oRequest, sJsonData, self.timeout)
+                    self.logger.info('Successfully sent stats to mobileminer sJsonData=' + sJsonData)
+                except Exception as e:
+                    self.logger.error('Error posting stats data to MultiMiner Exception: ' + str(e) + '\nURL=' + \
+                                      sPostURL + '\nsJsonData=' + sJsonData + '\n' + traceback.format_exc())
+                    print 'Error posting data to MultiMiner Exception: ' + str(e) + '\nURL=' + \
+                                      sPostURL + '\nsJsonData=' + sJsonData + '\n' + traceback.format_exc()
 
 
-    # This sends a message to the mobile miner application
-    def SendMessage (self, sMessage):
-        sPostURL ='https://mobileminer.azurewebsites.net/api/NotificationsInput?emailAddress='+ self.sEmail + \
-            '&applicationKey=' + self.sAppKey + '&apiKey=' + self.sApiKey
+    # This sends 1 message to 1 mobileminer application
+    def SendMessage (self, sMessage, sInEmail, sInAppKey):
+        sPostURL ='https://mobileminer.azurewebsites.net/api/NotificationsInput?emailAddress='+ sInEmail + \
+            '&applicationKey=' + sInAppKey + '&apiKey=' + self.sApiKey
 
         # oMessage needs to be an array of strings
         oMessage = [sMessage]
@@ -154,36 +185,50 @@ class MobileMinerAdapter:
             print 'Error posting data to MultiMiner Exception: ' + str(e) + '\nURL=' + \
                               sPostURL + '\nsJsonData=' + sJsonData + '\n' + traceback.format_exc()
 
-
-    # This sends a message to the mobile miner application
+    # This builds a data structure containing a list of commands for all machines for all configured mobileminer
+    # applications authorized to send commands
     def GetCommands (self):
-        sPostURL ='https://mobileminer.azurewebsites.net/api/RemoteCommands?emailAddress='+ self.sEmail + \
-            '&machineName=' + self.sMachineName + '&applicationKey=' + self.sAppKey + '&apiKey=' + self.sApiKey
+        oReturn = {}
+        for sAppKey in self.oMobileStructure:
+            print 'sAppKey=', sAppKey
+            oKeyValue = self.oMobileStructure[sAppKey]
 
-        try: 
-            self.logger.info('Requesting commands from mobileminer')
-            oRequest = urllib2.Request(sPostURL)
-            response = urllib2.urlopen(oRequest, None, 10)
-            sResponse = response.read()
-            decoded = json.loads(sResponse.replace('\x00', ''))
-            if len(decoded) > 0:
-                self.logger.info('Got messages from MobileMiner site.   sResponse=' + sResponse + ', len=' + str(len(sResponse)))
-                print 'Got messages from MobileMiner site.   sResponse=' + sResponse + ', len=' + str(len(sResponse))
-            return decoded
-        except Exception as e:
-            self.logger.error('Error getting commands from MultiMiner Exception: ' + str(e) + '\nURL=' + \
-                              sPostURL + '\n' + traceback.format_exc())
-            print 'Error getting commands from MultiMiner Exception: ' + str(e) + '\nURL=' + \
-                              sPostURL + '\n' + traceback.format_exc()
-            return None
+            for iCount in range(len(oKeyValue['remote_commands'])):
+                if oKeyValue['remote_commands'][iCount] == True:
+                    sMachineName = oKeyValue['machines'][iCount]
+                    sMobileEmail = oKeyValue['mobileminer_email']
+                    sPostURL ='https://mobileminer.azurewebsites.net/api/RemoteCommands?emailAddress='+ \
+                              oKeyValue['mobileminer_email'] + '&machineName=' + sMachineName + \
+                              '&applicationKey=' + sAppKey + '&apiKey=' + self.sApiKey
+
+                    try:
+                        self.logger.info('Requesting commands from mobileminer')
+                        oRequest = urllib2.Request(sPostURL)
+                        response = urllib2.urlopen(oRequest, None, 10)
+                        sResponse = response.read()
+                        decoded = json.loads(sResponse.replace('\x00', ''))
+                        if len(decoded) > 0:
+                            self.logger.info('Got messages from MobileMiner site.   sResponse=' + sResponse + ', len=' + str(len(sResponse)))
+                            print 'Got messages from MobileMiner site.   sResponse=' + sResponse + ', len=' + str(len(sResponse))
+                            oReturn[sMachineName] = {}
+                            oReturn[sMachineName]['mobileminer_api_key'] = sAppKey
+                            oReturn[sMachineName]['mobileminer_email'] = sMobileEmail
+                            oReturn[sMachineName]['commands'] = decoded
+
+                    except Exception as e:
+                        self.logger.error('Error getting commands from MultiMiner Exception: ' + str(e) + '\nURL=' + \
+                                          sPostURL + '\n' + traceback.format_exc())
+                        print 'Error getting commands from MultiMiner Exception: ' + str(e) + '\nURL=' + \
+                                          sPostURL + '\n' + traceback.format_exc()
+        return oReturn
 
     # This sends a message to the mobile miner application
-    def DeleteCommand (self, nCommandID):
-        sPostURL ='https://mobileminer.azurewebsites.net/api/RemoteCommands?emailAddress='+ self.sEmail + \
-            '&machineName=' + self.sMachineName + '&applicationKey=' + self.sAppKey + '&commandId=' + str(nCommandID) + '&apiKey=' + self.sApiKey
+    def DeleteCommand (self, nCommandID, sInEmail, sInAppKey, sInMachineName):
+        sPostURL ='https://mobileminer.azurewebsites.net/api/RemoteCommands?emailAddress='+ sInEmail + \
+            '&machineName=' + sInMachineName + '&applicationKey=' + sInAppKey + '&commandId=' + str(nCommandID) + '&apiKey=' + self.sApiKey
 
         try: 
-            self.logger.info('Requesting commands from mobileminer')
+            self.logger.info('Deleting command id=' + str(nCommandID) +' from mobileminer')
             oRequest = urllib2.Request(sPostURL)
             oRequest.get_method = lambda: 'DELETE'   # creates the delete method
             response = urllib2.urlopen(oRequest, None, 10)

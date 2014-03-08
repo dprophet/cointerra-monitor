@@ -1,6 +1,6 @@
 # Standard BSD license, blah blah, with 1 modification below
 
-# Copyright (c) 2014, Erik Andeson  eanders@pobox.com
+# Copyright (c) 2014, Erik Anderson  eanders@pobox.com
 # All rights reserved.
 # https://github.com/dprophet/cointerra-monitor
 # TIPS are appreciated.  None of us can afford to have these machines down:
@@ -435,7 +435,7 @@ class CointerraSSH:
     # Creates an SCP file transfer client
     def CreateScpClient(self):
         ssh_client = self.createSSHClient()
-        scp = SCPClient(ssh_client)
+        scp = scpclient.SCPClient(ssh_client)
 
     def reboot(self):
 
@@ -701,23 +701,71 @@ def StartMonitor(client, configs):
 
     oMobileReporter = None
     oSSH = None
+
+    '''
+    Build the mobileStructure to look something like this.  Makes posting of stats easier
+    {
+        "1234-5678-9010": {
+            "machines": [
+                "CointerraName1",
+                "CointerraName2"
+            ],
+            "mobileminer_email": "my@email.com",
+            "remote_commands": [
+                true,
+                false
+            ]
+        }
+    }
+    '''
+
+    mobileStructure = {}
+    for iCointerraNum in range(len(configs['machines'])):
+        oCurrentMachine = configs['machines'][iCointerraNum]
+        sMachineName = oCurrentMachine['machine_name']
+        nLen = len(oCurrentMachine['mobileminer'])
+
+        if nLen > 0:
+            for iCounter in range(nLen):
+                oMobile = oCurrentMachine['mobileminer'][iCounter]
+                sApiKey = oMobile['mobileminer_api_key']
+                sApiEmail = oMobile['mobileminer_email']
+                bRemoteCommands = False
+                if oMobile.has_key('remote_commands'):
+                    bRemoteCommands = oMobile['remote_commands']
+
+                sValue = None
+                if mobileStructure.has_key(sApiKey):
+                    sValue = mobileStructure[sApiKey]
+
+                if sValue == None:
+                    mobileStructure[sApiKey] = {}
+                    mobileStructure[sApiKey]['mobileminer_email'] = sApiEmail
+                    mobileStructure[sApiKey]['machines'] = []
+                    mobileStructure[sApiKey]['machines'].append(sMachineName)
+                    mobileStructure[sApiKey]['remote_commands'] = []
+                    mobileStructure[sApiKey]['remote_commands'].append(bRemoteCommands)
+                else:
+                    sValue['machines'].append(sMachineName)
+                    sValue['remote_commands'].append(bRemoteCommands)
+
+
+    logger.info('mobileStructure=', json.dumps(mobileStructure, sort_keys=True, indent=4))
+    print 'mobileStructure=', json.dumps(mobileStructure, sort_keys=True, indent=4)
     
     while(1):
         logger.info('Start of loop.  Time=' + time.strftime('%m/%d/%Y %H:%M:%S'))
 
         bWasAMachineRebooted = False
 
-        for iCointrraNum in range(len(configs['machines'])):
-            oCurrentMachine = configs['machines'][iCointrraNum]
+        for iCointerraNum in range(len(configs['machines'])):
+            oCurrentMachine = configs['machines'][iCointerraNum]
 
             output = ''
             bError = False
             bWarning = False
             bSocketError = False
             oStatsStructure = {}
-
-            must_send_email = False
-            must_restart = False
 
             nMobileMinerCount = 0
 
@@ -734,10 +782,9 @@ def StartMonitor(client, configs):
                 nMobileMinerCount = len(oCurrentMachine['mobileminer'])
 
             if nMobileMinerCount > 0 and oMobileReporter == None:
-                oMobileReporter = MobileMinerAdapter.MobileMinerAdapter(logger, oCurrentMachine['mobileminer'][0]['mobileminer_api_key'], \
-                                                                        sMachineName, email_to)
+                oMobileReporter = MobileMinerAdapter.MobileMinerAdapter(logger, mobileStructure)
 
-            logger.info('Checking machine ' + cgminer_host + '. Time=' + time.strftime('%m/%d/%Y %H:%M:%S'))
+            logger.info('Checking machine ' + cgminer_host + '(' + sMachineName + '). Time=' + time.strftime('%m/%d/%Y %H:%M:%S'))
 
             if oSSH == None:
                 oSSH = CointerraSSH(cgminer_host, 22, cointerra_ssh_user, cointerra_ssh_pass, sLogFilePath, logger)
@@ -810,32 +857,23 @@ def StartMonitor(client, configs):
             if bSocketError == False:
                 # No socket error.  Report to MobileMiner first
                 if oMobileReporter != None:
-                    if nMobileMinerCount > 0:
-                        oMobileReporter.SetMachineName(sMachineName)
-                        oMobileReporter.addDevices(oStatsStructure)
-
-                        for iMobileMinerCointer in range(nMobileMinerCount):
-                            oMobileReporter.SetAppKey(oCurrentMachine['mobileminer'][iMobileMinerCointer]['mobileminer_api_key'])
-                            oMobileReporter.SetEmailAddress(oCurrentMachine['mobileminer'][iMobileMinerCointer]['mobileminer_email'])
-                            oMobileReporter.SendStats()
-
-                        oMobileReporter.ClearData()
+                    oMobileReporter.addDevices(oStatsStructure)
 
                 # The oStatsStructure contains all of the cointerra stats from calls to the cgminer RPC port
                 for iCount in range(oStatsStructure['asics']['asic_count']):
                     oAsic = oStatsStructure['asics']['asics_array'][iCount]
                     if oAsic['status'] != 'Alive':
-                        nErrorCounterArray[iCointrraNum] = nErrorCounterArray[iCointrraNum] + 1
+                        nErrorCounterArray[iCointerraNum] = nErrorCounterArray[iCointerraNum] + 1
                         output = output + '\n Asic #' + str(iCount) + ' bad status =' + oAsic['status']
                         bError = True
                         break
                     elif oAsic['reject_percent'] > n_hardware_reboot_percentage:
-                        nErrorCounterArray[iCointrraNum] = nErrorCounterArray[iCointrraNum] + 1
+                        nErrorCounterArray[iCointerraNum] = nErrorCounterArray[iCointerraNum] + 1
                         output = output + '\n Asic #' + str(iCount) + ' Hardware Errors too high ' + str(oAsic['reject_percent'])
                         bError = True
                         break
                     elif oAsic['enabled'] != 'Y':
-                        nErrorCounterArray[iCointrraNum] = nErrorCounterArray[iCointrraNum] + 1
+                        nErrorCounterArray[iCointerraNum] = nErrorCounterArray[iCointerraNum] + 1
                         output = output + '\n Asic #' + str(iCount) + ' enabled= ' + oAsic['enabled']
                         bError = True
                         break
@@ -848,7 +886,7 @@ def StartMonitor(client, configs):
                             output = output + '\n ASIC ID=' + oStat['id'] + ' has a high temperature. avg_core_temp=' + str(oStat['avg_core_temp']) + \
                                 ' ambient_avg=' + str(oStat['ambient_avg'])
                         elif oStat['dies'] != oStat['dies_active']:
-                            nErrorCounterArray[iCointrraNum] = nErrorCounterArray[iCointrraNum] + 1
+                            nErrorCounterArray[iCointerraNum] = nErrorCounterArray[iCointerraNum] + 1
                             output = output + '\n' + oStat['id'] + ' has ' + str(oStat['dies_active']) + ' dies but only ' + \
                                 str(oStat['dies']) + ' are active'
                             bError = True
@@ -862,34 +900,34 @@ def StartMonitor(client, configs):
 
 
             else:
-                nErrorCounterArray[iCointrraNum] = nErrorCounterArray[iCointrraNum] + 1
+                nErrorCounterArray[iCointerraNum] = nErrorCounterArray[iCointerraNum] + 1
 
             if (bError == True) or (bSocketError == True):
-                if nErrorCounterArray[iCointrraNum] > n_max_error_count:
-                    sJsonContents[iCointrraNum] = ''
+                if nErrorCounterArray[iCointerraNum] > n_max_error_count:
+                    sJsonContents[iCointerraNum] = ''
 
                     # If a socket error use the last known good JSON contents
                     if bSocketError == True:
-                        sJsonContents[iCointrraNum] = sLastGoodJSONEntry[iCointrraNum]
+                        sJsonContents[iCointerraNum] = sLastGoodJSONEntry[iCointerraNum]
                     else:
-                        sJsonContents[iCointrraNum] = sPrettyJSON
+                        sJsonContents[iCointerraNum] = sPrettyJSON
 
                     print oStatsStructure['time'] + output
                     print 'Rebooting machine and sending email.  Will sleep for ' + str(n_reboot_wait_time) + ' seconds'
-                    print sJsonContents[iCointrraNum]
+                    print sJsonContents[iCointerraNum]
 
                     if oMobileReporter != None:
                         if nMobileMinerCount > 0:
-                            for iMobileMinerCointer in range(nMobileMinerCount):
-                                oMobileReporter.SetAppKey(oCurrentMachine['mobileminer'][iMobileMinerCointer]['mobileminer_api_key'])
-                                oMobileReporter.SetEmailAddress(oCurrentMachine['mobileminer'][iMobileMinerCointer]['mobileminer_email'])
+                            for iMobileMinerCounter in range(nMobileMinerCount):
+                                oMobileReporter.SetAppKey(oCurrentMachine['mobileminer'][iMobileMinerCounter]['mobileminer_api_key'])
+                                oMobileReporter.SetEmailAddress(oCurrentMachine['mobileminer'][iMobileMinerCounter]['mobileminer_email'])
                                 oMobileReporter.SendMessage('Fubar!  Rebooting ' + sMachineName)
 
 
-                    logger.error('Rebooting machine ' + sMachineName + ' and sending email, error:' + str(nErrorCounterArray[iCointrraNum]) + \
+                    logger.error('Rebooting machine ' + sMachineName + ' and sending email, error:' + str(nErrorCounterArray[iCointerraNum]) + \
                                  ' of:' + str(n_max_error_count)  + ' Will sleep for ' + str(n_reboot_wait_time) + ' seconds')
-                    if len(sJsonContents[iCointrraNum]) > 0:
-                        logger.debug(sJsonContents[iCointrraNum])
+                    if len(sJsonContents[iCointerraNum]) > 0:
+                        logger.debug(sJsonContents[iCointerraNum])
 
                     sDMesg = oSSH.ReturnCommandOutput('/bin/dmesg')
                     sLsusb = oSSH.ReturnCommandOutput('/usr/bin/lsusb')
@@ -909,7 +947,7 @@ def StartMonitor(client, configs):
                     if monitor_send_email_alerts:
                         SendEmail(sMachineName, from_addr = email_from, to_addr_list = [email_to], cc_addr_list = [],
                                   subject = email_error_subject,
-                                  message = output + '\n' + sJsonContents[iCointrraNum],
+                                  message = output + '\n' + sJsonContents[iCointerraNum],
                                   login = email_login,
                                   password = email_password,
                                   smtpserver = email_smtp_server,
@@ -919,22 +957,22 @@ def StartMonitor(client, configs):
 
                     os.remove(sLogFilePath + '/' + log_name + '.gz')
 
-                    nErrorCounterArray[iCointrraNum] = 0  # Reset the error counter
+                    nErrorCounterArray[iCointerraNum] = 0  # Reset the error counter
                 else:
-                    logger.warning('Got an error. Counter:' + str(nErrorCounterArray[iCointrraNum]) + ' of:' + str(n_max_error_count) + '\n' + output)
-                    print oStatsStructure['time'] + ' ' + sMachineName + ': Got an error. Counter:' + str(nErrorCounterArray[iCointrraNum]) + ' of:' + \
+                    logger.warning('Got an error. Counter:' + str(nErrorCounterArray[iCointerraNum]) + ' of:' + str(n_max_error_count) + '\n' + output)
+                    print oStatsStructure['time'] + ' ' + sMachineName + ': Got an error. Counter:' + str(nErrorCounterArray[iCointerraNum]) + ' of:' + \
                         str(n_max_error_count) + '\n' + output
 
             elif bWarning == True:
 
-                sJsonContents[iCointrraNum] = sPrettyJSON
+                sJsonContents[iCointerraNum] = sPrettyJSON
 
                 print oStatsStructure['time'] + ' ' + output
                 print 'System warning '
-                print sJsonContents[iCointrraNum]
+                print sJsonContents[iCointerraNum]
 
                 logger.warning('System warning: ' + output)
-                logger.warning(sJsonContents[iCointrraNum])
+                logger.warning(sJsonContents[iCointerraNum])
 
                 oSSH.ScpLogFile(cointerra_log_file)
                 oSSH.compressFile(sMonitorLogFile, False)
@@ -942,7 +980,7 @@ def StartMonitor(client, configs):
                 if monitor_send_email_alerts:
                     SendEmail(sMachineName, from_addr = email_from, to_addr_list = [email_to], cc_addr_list = [],
                               subject = email_warning_subject,
-                              message = output + '\n' + sJsonContents[iCointrraNum],
+                              message = output + '\n' + sJsonContents[iCointerraNum],
                               login = email_login,
                               password = email_password,
                               smtpserver = email_smtp_server,
@@ -950,89 +988,90 @@ def StartMonitor(client, configs):
                               sCGMinerLogfile = sLogFilePath + '/' + log_name + '.gz',
                               sMonitorLogfile = sMonitorLogFile + '.gz')
             else:
-                nErrorCounterArray[iCointrraNum] = 0
+                nErrorCounterArray[iCointerraNum] = 0
                 print time.strftime('%m/%d/%Y %H:%M:%S') + ' ' + sMachineName + ': everything is alive and well'
                 logger.info(time.strftime('%m/%d/%Y %H:%M:%S') + ' ' + sMachineName + ' everything is alive and well')
-                sLastGoodJSONEntry[iCointrraNum] = copy.deepcopy(sPrettyJSON)
+                sLastGoodJSONEntry[iCointerraNum] = copy.deepcopy(sPrettyJSON)
+
+
+        # Send the data and clear the array in the mobileminer array
+        if oMobileReporter != None:
+
+            # Send all machine stats to all configured multiminers
+            oMobileReporter.SendStats()
+
+            # Clear the machine data from the MobileMiner reporter.  Will repopulate next loop through
+            oMobileReporter.ClearData()
 
             # This large block of code processes commands from your MobileMiner.  Currently I only support RESTART
             # which will reboot your cointerra.  START and STOP are not supported as I dont see good mappings between
             # the cgminer RPC command list and the MobileMiner START/STOP
-            if oMobileReporter != None:
-                if nMobileMinerCount > 0:
-                    oMobileReporter.SetMachineName(sMachineName)
 
-                    for iMobileMinerCointer in range(nMobileMinerCount):
-                        if 'remote_commands' in oCurrentMachine['mobileminer'][iMobileMinerCointer] and \
-                            oCurrentMachine['mobileminer'][iMobileMinerCointer]['remote_commands'] == True:
+            iCmdLen = 0
+            oMachineCommands = oMobileReporter.GetCommands()
 
-                            iCmdLen = 0
-                            sMobileMinerEmail = oCurrentMachine['mobileminer'][iMobileMinerCointer]['mobileminer_email']
-                            oMobileReporter.SetAppKey(oCurrentMachine['mobileminer'][iMobileMinerCointer]['mobileminer_api_key'])
-                            oMobileReporter.SetEmailAddress(sMobileMinerEmail)
-                            oCommands = oMobileReporter.GetCommands()
+            for sMachineName in oMachineCommands:
+                oCommands = oMachineCommands[sMachineName]['commands']
+                sMobileMinerEmail = oMachineCommands[sMachineName]['mobileminer_email']
+                sMobileMinerAppKey = oMachineCommands[sMachineName]['mobileminer_api_key']
+                iCmdLen = len(oCommands)
 
-                            if oCommands:
-                                iCmdLen = len(oCommands)
+                for iCmdCount in range(iCmdLen):
+                    nCmdID = oCommands[iCmdCount]['Id']
+                    sCmdString = oCommands[iCmdCount]['CommandText']
 
-                            if iCmdLen > 0:
-                                for iCmdCount in range(iCmdLen):
-                                    nCmdID = oCommands[iCmdCount]['Id']
-                                    sCmdString = oCommands[iCmdCount]['CommandText']
+                    if nCmdID in nMobileMinerCommandIDs:
+                        logger.debug('CmdString=' + sCmdString + ', CommandID(' + str(nCmdID) + \
+                                     ') already in array.  Dont double process')
+                    else:
+                        logger.debug('Received new command:' + sCmdString + ' from ' + \
+                                     sMobileMinerEmail + \
+                                     ', CommandID(' + str(nCmdID) + '), Machine=' + sMachineName)
+                        print 'Received new command:' + sCmdString + ' from ' + \
+                                     sMobileMinerEmail + \
+                                     ', CommandID(' + str(nCmdID) + '), Machine=' + sMachineName
 
-                                    if nCmdID in nMobileMinerCommandIDs:
-                                        logger.debug('CmdString=' + sCmdString + ', CommandID(' + str(nCmdID) + \
-                                                     ') already in array.  Dont double process')
-                                    else:
-                                        logger.debug('Received new command:' + sCmdString + ' from ' + \
-                                                     sMobileMinerEmail + \
-                                                     ', CommandID(' + str(nCmdID) + '), Machine=' + sMachineName)
-                                        print 'Received new command:' + sCmdString + ' from ' + \
-                                                     sMobileMinerEmail + \
-                                                     ', CommandID(' + str(nCmdID) + '), Machine=' + sMachineName
+                        # Safety array so we make sure we dont double process commands.
+                        # MobileMiner website sometimes times out and may not delete the command
+                        nMobileMinerCommandIDs.append(nCmdID)
 
-                                        # Safety array so we make sure we dont double process commands.
-                                        # MobileMiner website sometimes times out and may not delete the command
-                                        nMobileMinerCommandIDs.append(nCmdID)
+                        if sCmdString == 'RESTART':
+                            print 'Received a RESTART. Rebooting ' + sMachineName
 
-                                        if sCmdString == 'RESTART':
-                                            print 'Received a RESTART. Rebooting ' + sMachineName
+                            sDMesg = oSSH.ReturnCommandOutput('/bin/dmesg')
+                            sLsusb = oSSH.ReturnCommandOutput('/usr/bin/lsusb')
 
-                                            sDMesg = oSSH.ReturnCommandOutput('/bin/dmesg')
-                                            sLsusb = oSSH.ReturnCommandOutput('/usr/bin/lsusb')
+                            logger.debug('dmesg on machine ' + sMachineName + '\n' + sDMesg)
+                            logger.debug('lsusb on machine ' + sMachineName + '\n' + sLsusb)
 
-                                            logger.debug('dmesg on machine ' + sMachineName + '\n' + sDMesg)
-                                            logger.debug('lsusb on machine ' + sMachineName + '\n' + sLsusb)
+                            oSSH.ScpLogFile(cointerra_log_file)
 
-                                            oSSH.ScpLogFile(cointerra_log_file)
+                            oSSH.reboot()
+                            bWasAMachineRebooted = True   # Will cause us to sleep for a while
 
-                                            oSSH.reboot()
-                                            bWasAMachineRebooted = True   # Will cause us to sleep for a while
+                            # compress the log file to make smaller before we email it
+                            oSSH.compressFile(sMonitorLogFile, False)
 
-                                            # compress the log file to make smaller before we email it
-                                            oSSH.compressFile(sMonitorLogFile, False)
+                            if monitor_send_email_alerts:
+                                SendEmail(sMachineName, from_addr = email_from, to_addr_list = [email_to], cc_addr_list = [],
+                                          subject = 'Machine ' + sMachineName + ', was remotely rebooted by ' + sMobileMinerEmail,
+                                          message = 'Machine ' + sMachineName + ', was remotely rebooted by ' + sMobileMinerEmail,
+                                          login = email_login,
+                                          password = email_password,
+                                          smtpserver = email_smtp_server,
+                                          file_logger = logger,
+                                          sCGMinerLogfile = sLogFilePath + '/' + log_name + '.gz',
+                                          sMonitorLogfile = sMonitorLogFile + '.gz')
 
-                                            if monitor_send_email_alerts:
-                                                SendEmail(sMachineName, from_addr = email_from, to_addr_list = [email_to], cc_addr_list = [],
-                                                          subject = 'Machine ' + sMachineName + ', was remotely rebooted by ' + sMobileMinerEmail,
-                                                          message = 'Machine ' + sMachineName + ', was remotely rebooted by ' + sMobileMinerEmail,
-                                                          login = email_login,
-                                                          password = email_password,
-                                                          smtpserver = email_smtp_server,
-                                                          file_logger = logger,
-                                                          sCGMinerLogfile = sLogFilePath + '/' + log_name + '.gz',
-                                                          sMonitorLogfile = sMonitorLogFile + '.gz')
+                            os.remove(sLogFilePath + '/' + log_name + '.gz')
 
-                                            os.remove(sLogFilePath + '/' + log_name + '.gz')
+                        elif sCmdString == 'STOP':
+                            print 'This is a STOP command.  We dont support STOP commands'
+                        elif sCmdString == 'START':
+                            print 'This is a START command.  We dont support START commands'
 
-                                        elif sCmdString == 'STOP':
-                                            print 'This is a STOP command.  We dont support STOP commands'
-                                        elif sCmdString == 'START':
-                                            print 'This is a START command.  We dont support START commands'
-
-                                    # Delete the command from the mobileminer website
-                                    oMobileReporter.DeleteCommand(nCmdID)
-
+                    # Delete the command from the mobileminer website
+                    oMobileReporter.DeleteCommand(nCmdID, sMobileMinerEmail, sMobileMinerAppKey, sMachineName)
 
 
         if bWasAMachineRebooted == True: 
