@@ -189,7 +189,6 @@ class MobileMinerAdapter:
     def GetCommands (self):
         oReturn = {}
         for sAppKey in self.oMobileStructure:
-            print 'sAppKey=', sAppKey
             oKeyValue = self.oMobileStructure[sAppKey]
 
             for iCount in range(len(oKeyValue['remote_commands'])):
