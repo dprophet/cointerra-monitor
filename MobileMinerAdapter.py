@@ -132,7 +132,6 @@ class MobileMinerAdapter:
         self.logger.info('Sending stats to mobileminer')
 
         for sAppKey in self.oMobileStructure:
-            print 'sAppKey=', sAppKey
             oKeyValue = self.oMobileStructure[sAppKey]
 
             oMachineArray = []
