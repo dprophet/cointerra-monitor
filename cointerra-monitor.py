@@ -919,9 +919,9 @@ def StartMonitor(client, configs):
                     if oMobileReporter != None:
                         if nMobileMinerCount > 0:
                             for iMobileMinerCounter in range(nMobileMinerCount):
-                                oMobileReporter.SetAppKey(oCurrentMachine['mobileminer'][iMobileMinerCounter]['mobileminer_api_key'])
-                                oMobileReporter.SetEmailAddress(oCurrentMachine['mobileminer'][iMobileMinerCounter]['mobileminer_email'])
-                                oMobileReporter.SendMessage('Fubar!  Rebooting ' + sMachineName)
+                                oMobileReporter.SendMessage('Fubar!  Rebooting ' + sMachineName, \
+                                                            oCurrentMachine['mobileminer'][iMobileMinerCounter]['mobileminer_email'], \
+                                                            oCurrentMachine['mobileminer'][iMobileMinerCounter]['mobileminer_api_key'])
 
 
                     logger.error('Rebooting machine ' + sMachineName + ' and sending email, error:' + str(nErrorCounterArray[iCointerraNum]) + \
