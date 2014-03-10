@@ -128,6 +128,7 @@ class CgminerClient:
     def __init__(self, host, port):
         self.host = host
         self.rpc_port = port
+        self.logger = None
 
     def command(self, command, parameter):
         # sockets are one time use. open one for each command
@@ -145,7 +146,10 @@ class CgminerClient:
             else:
                 mycommand = json.dumps({"command": command})
 
-            self.logger.debug('host ' + self.host + ' port:' + str(self.rpc_port) + ', command:' + mycommand)
+            if self.logger:
+                self.logger.debug('host ' + self.host + ' port:' + str(self.rpc_port) + ', command:' + mycommand)
+            else:
+                print 'host ' + self.host + ' port:' + str(self.rpc_port) + ', command:' + mycommand
 
             sock.connect((self.host, self.rpc_port))
             self._send(sock, mycommand)
@@ -153,7 +157,8 @@ class CgminerClient:
         except Exception as e:
             received['error'] = 'SOCKET_ERROR(' + self.host + '): ' + str(e)
             print received['error']
-            self.logger.error(received['error'] + '\n' + traceback.format_exc())
+            if self.logger:
+                self.logger.error(received['error'] + '\n' + traceback.format_exc())
             sock.close()
             return received
 
@@ -168,7 +173,11 @@ class CgminerClient:
             decoded = json.loads(received['message'].replace('\x00', ''))
             myprettyjson = json.dumps(decoded, sort_keys=True, indent=4)
 
-            self.logger.debug('Received command(' + command + ') results=' + myprettyjson)
+            if self.logger:
+                self.logger.debug('Received command(' + command + ') results=' + myprettyjson)
+            else:
+                print 'Received command(' + command + ') results=' + myprettyjson
+
             received['message'] = decoded
             received['error'] = None
             return received
@@ -288,7 +297,7 @@ class JSONMessageProcessor:
                 thisStat['board_num'] = result['Board number']
                 thisStat['calc_hashrate'] = result['Calc hashrate']
                 thisStat['ambient_avg'] = float(result['Ambient Avg']) / float(100)
-                thisStat['asics'] = result['Asics']
+                thisStat['num_asics'] = result['Asics']
                 thisStat['board_num'] = result['Board number']
                 thisStat['dies'] = result['Dies']
                 thisStat['dies_active'] = result['DiesActive']
@@ -336,6 +345,40 @@ class JSONMessageProcessor:
                     iId = iId + 1
                     sKey = 'FanRPM' + str(iId)
                     myval = result.get(sKey)
+
+
+                # build an array of arrays that can be used to keep track of individual cores inside each asic
+                thisStat['asic_status'] = {}
+                thisStat['asic_status']['id'] = thisStat['id']
+                thisStat['asic_status']['dies'] = thisStat['dies']
+                thisStat['asic_status']['dies_active'] = thisStat['dies_active']
+
+                thisStat['asic_status']['pipebitmaphex'] = []
+                thisStat['asic_status']['alive'] = []
+                for iAsicNum in range(thisStat['num_asics']):
+                    iCoreNum = 0
+
+                    sKey = 'Asic' + str(iAsicNum) + 'Core' + str(iCoreNum)
+                    bHasKey = result.has_key(sKey)
+                    oCores = []
+                    oAlive = []
+
+                    while bHasKey == True:
+                        sVal = result[sKey]
+                        oCores.append(sVal)
+                        if sVal == '00000000000000000000000000000000':
+                            oAlive.append(False)
+                        else:
+                            oAlive.append(True)
+
+                        iCoreNum = iCoreNum + 1
+                        sKey = 'Asic' + str(iAsicNum) + 'Core' + str(iCoreNum)
+                        bHasKey = result.has_key(sKey)
+
+                    # Append the cores array to the asic array
+                    thisStat['asic_status']['pipebitmaphex'].append(oCores)
+                    thisStat['asic_status']['alive'].append(oAlive)
+
 
             else:
                 thisStat['type'] = 'pool'
@@ -659,6 +702,45 @@ def SendEmail(sMachineName, from_addr, to_addr_list, cc_addr_list,
             file_logger.error("Error sending email for machine=" + sMachineName + '\n' + str(e) + '\n' + traceback.format_exc())
 
 
+# Utility to compares the current asic statuses vs the initial statups statuses stored in oInitialAsicStatuses
+# Return of False means a reboot is necessary
+def compareAcisStatuses(sMachineName, oInitialAsicStatuses, oAsicStat, logger):
+    bReturn = True
+
+    oArray = oInitialAsicStatuses[sMachineName]['asic_status']
+
+    for iCounter in range(len(oArray)):
+        if oArray[iCounter]['id'] == oAsicStat['id']:
+            # This is the right element
+            iLenInitialAsics = len(oAsicStat['asic_status']['alive'])
+            iLenCurrentAsics = len(oArray[iCounter]['alive'])
+
+            if iLenInitialAsics == iLenCurrentAsics:
+
+                for iCounter2 in range(iLenInitialAsics):
+                    iLenInitialCores = len(oAsicStat['asic_status']['alive'][iCounter2])
+                    iLenCurrentCores = len(oArray[iCounter]['alive'][iCounter2])
+
+                    if iLenInitialCores == iLenCurrentCores:
+                        for iCounter3 in range(iLenInitialCores):
+                            # Is the core disabled and the core status not equal to the status when monitor initially started
+                            if oAsicStat['asic_status']['alive'][iCounter2][iCounter3] == False and \
+                                    oAsicStat['asic_status']['alive'][iCounter2][iCounter3] != oArray[iCounter]['alive'][iCounter2][iCounter3]:
+                                bReturn = False
+                                logger.error('Machine:' + sMachineName + ', Asic:' + oAsicStat['id'] + ', chip:[' + str(iCounter2) + \
+                                    '][' + str(iCounter3) + '] went offline' )
+                                print 'Machine:', sMachineName, ', Asic:', oAsicStat['id'], ', chip:[', str(iCounter2), \
+                                    '][', str(iCounter3), '] went offline'
+                    else:
+                        bReturn = False
+
+            else:
+                bReturn = False
+
+    return bReturn
+
+
+
 # This is the main execution module
 def StartMonitor(client, configs):
     os.system('clear')
@@ -683,6 +765,7 @@ def StartMonitor(client, configs):
     logger.addHandler(hdlr) 
     logger.setLevel(nLoggingLevel)
     client.setLogger(logger)
+    oInitialAsicStatuses = {}  # This data structure will be populated with asic+die statuses for the first run after startup.
 
     logger.error('Starting cointerra-watcher ' + time.strftime('%m/%d/%Y %H:%M:%S'))
 
@@ -750,7 +833,7 @@ def StartMonitor(client, configs):
                     sValue['remote_commands'].append(bRemoteCommands)
 
 
-    logger.info('mobileStructure=', json.dumps(mobileStructure, sort_keys=True, indent=4))
+    logger.info('mobileStructure=' + json.dumps(mobileStructure, sort_keys=True, indent=4))
     print 'mobileStructure=', json.dumps(mobileStructure, sort_keys=True, indent=4)
     
     while(1):
@@ -849,12 +932,22 @@ def StartMonitor(client, configs):
             # Make it more human readable
             sPrettyJSON = json.dumps(oStatsStructure, sort_keys=False, indent=4)
 
-            if bDebug:
-                print 'new oStatsStructure = ' + sPrettyJSON
+            # print 'new oStatsStructure = ' + sPrettyJSON
 
             logger.debug('new oStatsStructure = ' + sPrettyJSON)
 
             if bSocketError == False:
+
+                # Check if this is the first run.  If so copy the ASIC statuses into the
+                if oInitialAsicStatuses.has_key(sMachineName) == False:
+                    oInitialAsicStatuses[sMachineName] = {}
+                    oInitialAsicStatuses[sMachineName]['asic_status'] = []
+
+                    for iCount in range(oStatsStructure['stats']['stats_count']):
+                        oStat = oStatsStructure['stats']['stats_array'][iCount]
+                        if oStat['type'] == 'asic':
+                            oInitialAsicStatuses[sMachineName]['asic_status'].append(copy.deepcopy(oStat['asic_status']))
+
                 # No socket error.  Report to MobileMiner first
                 if oMobileReporter != None:
                     oMobileReporter.addDevices(oStatsStructure)
@@ -880,17 +973,23 @@ def StartMonitor(client, configs):
 
                 for iCount in range(oStatsStructure['stats']['stats_count']):
                     oStat = oStatsStructure['stats']['stats_array'][iCount]
+
                     if oStat['type'] == 'asic':
                         if oStat['avg_core_temp'] >= max_temperature or oStat['ambient_avg'] >= max_temperature:
                             bWarning = True
                             output = output + '\n ASIC ID=' + oStat['id'] + ' has a high temperature. avg_core_temp=' + str(oStat['avg_core_temp']) + \
                                 ' ambient_avg=' + str(oStat['ambient_avg'])
                         elif oStat['dies'] != oStat['dies_active']:
-                            nErrorCounterArray[iCointerraNum] = nErrorCounterArray[iCointerraNum] + 1
-                            output = output + '\n' + oStat['id'] + ' has ' + str(oStat['dies_active']) + ' dies but only ' + \
-                                str(oStat['dies']) + ' are active'
-                            bError = True
-                            break
+
+                            # Compare the current ASIC core statuses vs the initial values read when script started
+                            bOk = compareAcisStatuses(sMachineName, oInitialAsicStatuses, oStat, logger)
+
+                            if bOk == False:
+                                nErrorCounterArray[iCointerraNum] = nErrorCounterArray[iCointerraNum] + 1
+                                output = output + '\n' + oStat['id'] + ' has ' + str(oStat['dies_active']) + ' dies but only ' + \
+                                    str(oStat['dies']) + ' are active'
+                                bError = True
+                                break
 
                         for iCore in range(len(oStat['core_temps'])):
                             if oStat['core_temps'][iCore] >= max_core_temperature:
@@ -1073,6 +1172,8 @@ def StartMonitor(client, configs):
                     # Delete the command from the mobileminer website
                     oMobileReporter.DeleteCommand(nCmdID, sMobileMinerEmail, sMobileMinerAppKey, sMachineName)
 
+        # print 'oInitialAsicStatuses=', json.dumps(oInitialAsicStatuses, sort_keys=True, indent=4)
+
 
         if bWasAMachineRebooted == True: 
             time.sleep(n_reboot_wait_time)
@@ -1088,21 +1189,33 @@ def StartMonitor(client, configs):
 
 if __name__ == "__main__":
 
-    command = sys.argv[1] if len(sys.argv) > 1 else None
-    parameter = sys.argv[2] if len(sys.argv) > 2 else None
+    iArgLen = len(sys.argv)
+    sHost = sys.argv[1] if iArgLen > 1 else None
+    command = sys.argv[2] if iArgLen > 2 else None
+    parameter = sys.argv[3] if iArgLen > 3 else None
 
     configJson = ''
+    decodedConfig = None
+    myfile = None
 
-    myfile = open ("config.json", "r")
-    configJson=myfile.read()
-    decodedConfig = json.loads(configJson)
+    try:
+        myfile = open ("config.json", "r")
+        configJson=myfile.read()
+        decodedConfig = json.loads(configJson)
+    except Exception as e:
+        print 'ERROR with your config.json file.  Fix it before trying to continue'
+        print e
+        print 'Traceback =' + traceback.format_exc()
+        sys.exit(0)
 
+    # Create the CgminerClient client.  This will let us communicate with the cgminer running on the cointerra box
     client = CgminerClient(decodedConfig['machines'][0]['cointerra_ip_address'], cgminer_port)
 
-    print decodedConfig
+    #print 'config.json=', configJson, '\n'
 
     if command:
         # An argument was specified, ask cgminer and exit
+        client.setCointerraIP(sHost)
         result = client.command(command, parameter)
         print str(result) if result else 'Cannot get valid response from cgminer'
         sys.exit(1)
