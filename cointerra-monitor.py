@@ -733,9 +733,15 @@ def compareAcisStatuses(sMachineName, oInitialAsicStatuses, oAsicStat, logger):
                                     '][', str(iCounter3), '] went offline'
                     else:
                         bReturn = False
+                        logger.error('Machine:' + sMachineName + ' initial core count(' + str(iLenInitialCores) + \
+                                     ') and current core count(' + str(iLenCurrentCores) + ' is not the same')
+                        print 'Machine:' + sMachineName + ' initial core count(' + str(iLenInitialCores) + \
+                                     ') and current core count(' + str(iLenCurrentCores) + ' is not the same'
 
             else:
                 bReturn = False
+                logger.error('Machine:' + sMachineName + ' it appears an asic went out' )
+                print 'Machine:' + sMachineName + ' it appears an asic went out'
 
     return bReturn
 
