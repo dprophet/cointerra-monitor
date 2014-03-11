@@ -882,6 +882,8 @@ def StartMonitor(client, configs):
             oSSH.setHost(cgminer_host)
             oSSH.setPassword(cointerra_ssh_pass)
 
+            sMessage = ''
+
             client.setCointerraIP(cgminer_host)
 
             oStatsStructure['time'] = time.strftime('%m/%d/%Y %H:%M:%S')
@@ -959,8 +961,10 @@ def StartMonitor(client, configs):
                     oMobileReporter.addDevices(oStatsStructure)
 
                 # The oStatsStructure contains all of the cointerra stats from calls to the cgminer RPC port
+                sMessage = sMessage + '#ASIC:' + str(oStatsStructure['asics']['asic_count'])
                 for iCount in range(oStatsStructure['asics']['asic_count']):
                     oAsic = oStatsStructure['asics']['asics_array'][iCount]
+                    sMessage = sMessage + ' ID:' + str(oAsic['id']) + ':' + oAsic['status'] + '/' + oAsic['enabled']
                     if oAsic['status'] != 'Alive':
                         nErrorCounterArray[iCointerraNum] = nErrorCounterArray[iCointerraNum] + 1
                         output = output + '\n Asic #' + str(iCount) + ' bad status =' + oAsic['status']
@@ -981,6 +985,7 @@ def StartMonitor(client, configs):
                     oStat = oStatsStructure['stats']['stats_array'][iCount]
 
                     if oStat['type'] == 'asic':
+                        sMessage = sMessage + ' ID:' + oStat['id'] + ' DIES:' + str(oStat['dies_active']) + '/' + str(oStat['dies'])
                         if oStat['avg_core_temp'] >= max_temperature or oStat['ambient_avg'] >= max_temperature:
                             bWarning = True
                             output = output + '\n ASIC ID=' + oStat['id'] + ' has a high temperature. avg_core_temp=' + str(oStat['avg_core_temp']) + \
@@ -1094,8 +1099,8 @@ def StartMonitor(client, configs):
                               sMonitorLogfile = sMonitorLogFile + '.gz')
             else:
                 nErrorCounterArray[iCointerraNum] = 0
-                print time.strftime('%m/%d/%Y %H:%M:%S') + ' ' + sMachineName + ': everything is alive and well'
-                logger.info(time.strftime('%m/%d/%Y %H:%M:%S') + ' ' + sMachineName + ' everything is alive and well')
+                print time.strftime('%m/%d/%Y %H:%M:%S') + ' ' + sMachineName.ljust(20) + ' ' + sMessage + '. alive and well'
+                logger.info(time.strftime('%m/%d/%Y %H:%M:%S') + ' ' + sMachineName.ljust(20) + ' ' + sMessage + '. alive and well')
                 sLastGoodJSONEntry[iCointerraNum] = copy.deepcopy(sPrettyJSON)
 
 
