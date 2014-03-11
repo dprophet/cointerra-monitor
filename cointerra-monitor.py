@@ -1102,7 +1102,7 @@ def StartMonitor(client, configs):
                               sMonitorLogfile = sMonitorLogFile + '.gz')
             else:
                 nErrorCounterArray[iCointerraNum] = 0
-                print time.strftime('%m/%d/%Y %H:%M:%S') + ' ' + sMachineName.ljust(20) + ' ' + sMessage + '. alive and well'
+                print time.strftime('%H:%M:%S') + ' ' + sMachineName.ljust(20) + ' ' + sMessage + '.'
                 logger.info(time.strftime('%m/%d/%Y %H:%M:%S') + ' ' + sMachineName.ljust(20) + ' ' + sMessage + '. alive and well')
                 sLastGoodJSONEntry[iCointerraNum] = copy.deepcopy(sPrettyJSON)
 
