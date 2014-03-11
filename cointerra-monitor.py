@@ -1008,6 +1008,9 @@ def StartMonitor(client, configs):
                                 output = output + '\n' + oStat['id'] + ' core#' + str(iCore) + ' has a high temperature of ' + \
                                     str(oStat['core_temps'][iCore]) + '. Max temp is ' + str(max_core_temperature)
 
+                #sMessage = sMessage + ' hashavg:' + str(oStatsStructure['summary']['hashavg'] / 1000000)
+                sMessage = sMessage + ' hashavg:{:.3f}T'.format(oStatsStructure['summary']['hashavg'] / 1000000)
+
 
             else:
                 nErrorCounterArray[iCointerraNum] = nErrorCounterArray[iCointerraNum] + 1
