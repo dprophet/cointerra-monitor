@@ -328,7 +328,9 @@ class JSONMessageProcessor:
 
                     thisStat['hw_errors'] = thisStat['hw_errors'] + result[sKey]
 
-                thisStat['avg_core_temp'] = float(thisStat['avg_core_temp']) / float(100) / float(thisStat['dies'])
+                thisStat['avg_core_temp'] = float(thisStat['avg_core_temp'] / float(100))
+                if thisStat['dies'] != 0:
+                    thisStat['avg_core_temp'] = float(thisStat['avg_core_temp'] / float(thisStat['dies']))
 
                 iId = 0
                 sKey = 'FanRPM' + str(iId)
@@ -990,7 +992,7 @@ def StartMonitor(client, configs):
                             bWarning = True
                             output = output + '\n ASIC ID=' + oStat['id'] + ' has a high temperature. avg_core_temp=' + str(oStat['avg_core_temp']) + \
                                 ' ambient_avg=' + str(oStat['ambient_avg'])
-                        elif oStat['dies'] != oStat['dies_active']:
+                        elif oStat['dies'] == 0 or oStat['dies'] != oStat['dies_active']:
 
                             # Compare the current ASIC core statuses vs the initial values read when script started
                             bOk = compareAcisStatuses(sMachineName, oInitialAsicStatuses, oStat, logger)
