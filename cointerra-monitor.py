@@ -706,6 +706,7 @@ def SendEmail(sMachineName, from_addr, to_addr_list, cc_addr_list,
 
 # Utility to compares the current asic statuses vs the initial statups statuses stored in oInitialAsicStatuses
 # Return of False means a reboot is necessary
+# oStat = oStatsStructure['stats']['stats_array'][iCount]
 def compareAcisStatuses(sMachineName, oInitialAsicStatuses, oAsicStat, logger):
     bReturn = True
 
@@ -774,6 +775,7 @@ def StartMonitor(client, configs):
     logger.setLevel(nLoggingLevel)
     client.setLogger(logger)
     oInitialAsicStatuses = {}  # This data structure will be populated with asic+die statuses for the first run after startup.
+    oInitialAsicStatuses['logged'] = False
 
     logger.error('Starting cointerra-watcher ' + time.strftime('%m/%d/%Y %H:%M:%S'))
 
@@ -1188,8 +1190,9 @@ def StartMonitor(client, configs):
                     # Delete the command from the mobileminer website
                     oMobileReporter.DeleteCommand(nCmdID, sMobileMinerEmail, sMobileMinerAppKey, sMachineName)
 
-        # print 'oInitialAsicStatuses=', json.dumps(oInitialAsicStatuses, sort_keys=True, indent=4)
-
+        if oInitialAsicStatuses['logged'] == False:
+            logger.debug('oInitialAsicStatuses=' + json.dumps(oInitialAsicStatuses, sort_keys=True, indent=4))
+            oInitialAsicStatuses['logged'] = True
 
         if bWasAMachineRebooted == True: 
             time.sleep(n_reboot_wait_time)
