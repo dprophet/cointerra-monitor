@@ -994,7 +994,7 @@ def StartMonitor(client, configs):
                             bWarning = True
                             output = output + '\n ASIC ID=' + oStat['id'] + ' has a high temperature. avg_core_temp=' + str(oStat['avg_core_temp']) + \
                                 ' ambient_avg=' + str(oStat['ambient_avg'])
-                        elif oStat['dies'] == 0 or oStat['dies'] != oStat['dies_active']:
+                        elif oStat['dies'] == 0 or oStat['dies'] != oStat['dies_active'] or oStat['dies'] != 8:
 
                             # Compare the current ASIC core statuses vs the initial values read when script started
                             bOk = compareAcisStatuses(sMachineName, oInitialAsicStatuses, oStat, logger)
