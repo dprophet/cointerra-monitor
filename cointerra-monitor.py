@@ -81,7 +81,7 @@ email_error_subject = 'Error'      #subject of emails for errors (these are seri
 
 monitor_interval = 30  #interval between checking the cointerra status (in seconds), Ideal if using MobileMiner
 monitor_wait_after_email = 60  #waits 60 seconds after the status email was sent
-monitor_restart_cointerra_if_sick = False  #should we reboot the cointerra if sick/dead. This should ALWAYS be set to true except development/artificial errors
+monitor_restart_cointerra_if_sick = True  #should we reboot the cointerra if sick/dead. This should ALWAYS be set to true except development/artificial errors
 monitor_send_email_alerts = True  #should emails be sent containing status information, etc.
 
 max_temperature = 80.0  #maximum temperature before a warning is sent in Celcius
