@@ -51,7 +51,7 @@ import logging
 
 import smtplib
 import email
-import gzip
+import bz2
 
 import json
 import os
@@ -84,9 +84,8 @@ monitor_wait_after_email = 60  #waits 60 seconds after the status email was sent
 monitor_restart_cointerra_if_sick = True  #should we reboot the cointerra if sick/dead. This should ALWAYS be set to true except development/artificial errors
 monitor_send_email_alerts = True  #should emails be sent containing status information, etc.
 
-max_temperature = 80.0  #maximum temperature before a warning is sent in Celcius
-max_core_temperature = 92.0  #maximum temperature of 1 core before a warning is sent in Celcius
-cointerra_min_mhs_sha256 = 1500000  #minimum expected hash rate for sha256, if under, warning is sent in MH/s
+max_temperature = 80.0  #maximum temperature before a warning is sent in celsius
+max_core_temperature = 92.0  #maximum temperature of 1 core before a warning is sent in celsius
 
 n_devices = 0  #Total nunber of ASIC processors onboard.  We will query for the count.
 n_max_error_count = 3  # How many errors before you reboot the cointerra
@@ -615,13 +614,19 @@ class CointerraSSH:
     def compressFile (self, sUncompressedFilename, bDeleteOriginalFile):
         #compress the log file.  Can be very large for emailing
         try:
-            spath, sname = os.path.split(sUncompressedFilename)
 
-            f_in = open(sUncompressedFilename, 'rb')
-            f_out = gzip.open(sUncompressedFilename + '.gz', 'wb')
-            f_out.writelines(f_in)
-            f_out.close()
-            f_in.close()
+            oComp = bz2.BZ2Compressor()
+            oSource = file(sUncompressedFilename, 'rb')
+            oDest = file(sUncompressedFilename + '.bz2', 'wb')
+            sBlock = oSource.read( 2048 )
+            while sBlock:
+                cBlock = oComp.compress( sBlock )
+                oDest.write(cBlock)
+                sBlock = oSource.read( 2048 )
+            cBlock = oComp.flush()
+            oDest.write( cBlock )
+            oSource.close()
+            oDest.close()
 
             if bDeleteOriginalFile == True:
                 os.remove(sUncompressedFilename)
@@ -678,7 +683,7 @@ def SendEmail(sMachineName, from_addr, to_addr_list, cc_addr_list,
                 part.set_payload(open(sCGMinerLogfile, "rb").read())
                 email.Encoders.encode_base64(part)
 
-                part.add_header('Content-Disposition', 'attachment; filename="cgminer.log.gz"')
+                part.add_header('Content-Disposition', 'attachment; filename="cgminer.log.bz2"')
 
                 msg.attach(part)
 
@@ -689,7 +694,7 @@ def SendEmail(sMachineName, from_addr, to_addr_list, cc_addr_list,
             part.set_payload(open(sMonitorLogfile, "rb").read())
             email.Encoders.encode_base64(part)
 
-            part.add_header('Content-Disposition', 'attachment; filename="cointerra_monitor.log.gz"')
+            part.add_header('Content-Disposition', 'attachment; filename="cointerra_monitor.log.bz2"')
 
             msg.attach(part)
 
@@ -1069,10 +1074,11 @@ def StartMonitor(client, configs):
                                   password = email_password,
                                   smtpserver = email_smtp_server,
                                   file_logger = logger,
-                                  sCGMinerLogfile = sLogFilePath + '/' + log_name + '.gz',
-                                  sMonitorLogfile = sMonitorLogFile + '.gz')
+                                  sCGMinerLogfile = sLogFilePath + '/' + log_name + '.bz2',
+                                  sMonitorLogfile = sMonitorLogFile + '.bz2')
 
-                    os.remove(sLogFilePath + '/' + log_name + '.gz')
+                    if os.path.isfile(sLogFilePath + '/' + log_name + '.bz2') == True:
+                        os.remove(sLogFilePath + '/' + log_name + '.bz2')
 
                     nErrorCounterArray[iCointerraNum] = 0  # Reset the error counter
                 else:
@@ -1102,8 +1108,8 @@ def StartMonitor(client, configs):
                               password = email_password,
                               smtpserver = email_smtp_server,
                               file_logger = logger,
-                              sCGMinerLogfile = sLogFilePath + '/' + log_name + '.gz',
-                              sMonitorLogfile = sMonitorLogFile + '.gz')
+                              sCGMinerLogfile = sLogFilePath + '/' + log_name + '.bz2',
+                              sMonitorLogfile = sMonitorLogFile + '.bz2')
             else:
                 nErrorCounterArray[iCointerraNum] = 0
                 print time.strftime('%H:%M:%S') + ' ' + sMachineName.ljust(20) + ' ' + sMessage + '.'
@@ -1177,10 +1183,11 @@ def StartMonitor(client, configs):
                                           password = email_password,
                                           smtpserver = email_smtp_server,
                                           file_logger = logger,
-                                          sCGMinerLogfile = sLogFilePath + '/' + log_name + '.gz',
-                                          sMonitorLogfile = sMonitorLogFile + '.gz')
+                                          sCGMinerLogfile = sLogFilePath + '/' + log_name + '.bz2',
+                                          sMonitorLogfile = sMonitorLogFile + '.bz2')
 
-                            os.remove(sLogFilePath + '/' + log_name + '.gz')
+                            if os.path.isfile(sLogFilePath + '/' + log_name + '.bz2') == True:
+                                os.remove(sLogFilePath + '/' + log_name + '.bz2')
 
                         elif sCmdString == 'STOP':
                             print 'This is a STOP command.  We dont support STOP commands'
