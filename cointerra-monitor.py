@@ -307,7 +307,6 @@ class JSONMessageProcessor:
                 thisStat['serial'] = result['Serial']
                 thisStat['elapsed'] = result['Elapsed']
                 thisStat['uptime'] = result['Uptime']
-                thisStat['raw_hashrate'] = result['Raw hashrate']
                 thisStat['rejected_hashrate'] = result['Rejected hashrate']
                 thisStat['total_hashes'] = result['Total hashes']
                 thisStat['pump_rpm'] = result['PumpRPM0']
