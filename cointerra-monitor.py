@@ -84,8 +84,8 @@ monitor_wait_after_email = 60  #waits 60 seconds after the status email was sent
 monitor_restart_cointerra_if_sick = True  #should we reboot the cointerra if sick/dead. This should ALWAYS be set to true except development/artificial errors
 monitor_send_email_alerts = True  #should emails be sent containing status information, etc.
 
-max_temperature = 80.0  #maximum temperature before a warning is sent in celsius
-max_core_temperature = 92.0  #maximum temperature of 1 core before a warning is sent in celsius
+max_temperature = 85.0  #maximum temperature before a warning is sent in celsius
+max_core_temperature = 100.0  #maximum temperature of 1 core before a warning is sent in celsius
 
 n_devices = 0  #Total nunber of ASIC processors onboard.  We will query for the count.
 n_max_error_count = 3  # How many errors before you reboot the cointerra
@@ -397,31 +397,44 @@ class JSONMessageProcessor:
     def AscicBlock(self, sStatsObject, nAsicNumber, sAscicJSON):
         self.logger.debug('Processing ascic block')
 
-        if sStatsObject['asics'].get('asics_array') == None:
-            sStatsObject['asics']['asics_array'] = []
+        try:
 
-        result = sAscicJSON['ASC'][0]
+            if sStatsObject['asics'].get('asics_array') == None:
+                sStatsObject['asics']['asics_array'] = []
 
-        asicStatus = result['Status']  #If this is ever bad, not good!!!
-        asicName = result['Name']
-        asicHash5s = result['MHS 5s']
-        asicHashAvg = result['MHS av']
-        asicHardwareErrors = result['Hardware Errors']
-        asicRejected = result['Rejected']
-        asicAccepted = result['Accepted']
-        asicID = result['ID']
-        asicEnabled = result['Enabled']
-        asicDeviceRejectPercent = result['Device Rejected%']
-        asicLastShareTime = time.strftime('%m/%d/%Y %H:%M:%S', time.localtime(result['Last Share Time']))
-        asicLastValidWork = time.strftime('%m/%d/%Y %H:%M:%S', time.localtime(result['Last Valid Work']))
+            result = sAscicJSON['ASC'][0]
 
-        sStatsObject['asics']['asics_array'].insert(nAsicNumber, dict([('status', asicStatus), ('name', asicName), ('hash5s', asicHash5s), \
-                                                                       ('hashavg', asicHashAvg), ('hw_errors', asicHardwareErrors), \
-                                                                       ('rejected', asicRejected), ('id', asicID), ('enabled', asicEnabled), \
-                                                                       ('accepted', asicAccepted), ('reject_percent', asicDeviceRejectPercent), \
-                                                                       ('last_share_t', asicLastShareTime), ('last_valid_t', asicLastValidWork)]))
-        
-        return sStatsObject
+            asicStatus = result['Status']  #If this is ever bad, not good!!!
+            asicName = result['Name']
+            asicHash5s = result['MHS 5s']
+            asicHashAvg = result['MHS av']
+            asicHardwareErrors = result['Hardware Errors']
+            asicRejected = result['Rejected']
+            asicAccepted = result['Accepted']
+            asicID = result['ID']
+            asicEnabled = result['Enabled']
+            asicDeviceRejectPercent = result['Device Rejected%']
+            asicLastShareTime = time.strftime('%m/%d/%Y %H:%M:%S', time.localtime(result['Last Share Time']))
+            asicLastValidWork = time.strftime('%m/%d/%Y %H:%M:%S', time.localtime(result['Last Valid Work']))
+
+            sStatsObject['asics']['asics_array'].insert(nAsicNumber, dict([('status', asicStatus), ('name', asicName), ('hash5s', asicHash5s), \
+                                                                           ('hashavg', asicHashAvg), ('hw_errors', asicHardwareErrors), \
+                                                                           ('rejected', asicRejected), ('id', asicID), ('enabled', asicEnabled), \
+                                                                           ('accepted', asicAccepted), ('reject_percent', asicDeviceRejectPercent), \
+                                                                           ('last_share_t', asicLastShareTime), ('last_valid_t', asicLastValidWork)]))
+
+            return sStatsObject
+
+        except Exception as e:
+            # Its important to crash/shutdown here until all bugs are gone.
+            print 'Error thrown in AscicBlock'
+            print e
+            print 'sAscicJSON =' + sAscicJSON
+            print 'Traceback =' + traceback.format_exc()
+            client.logger.error('sAscicJSON =' + sAscicJSON)
+            client.logger.error('Error thrown in AscicBlock =' + str(e) + '\n' + traceback.format_exc())
+            raise  #Raise the error again so we crash and get the stack trace
+
 
     # Processes the summary JSON return from a summary command
     def SummaryBlock(self, sStatsObject, sSummaryJSON):
